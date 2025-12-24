@@ -46,7 +46,7 @@ impl EvolutionaryLayer {
     }
 }
 
-/// 🧠 HTPModel: The Crystal Brain
+/// HTPModel: The Evolutionary Neural System
 pub struct HTPModel {
     pub layers: Vec<EvolutionaryLayer>,
     pub discriminant: Integer,
