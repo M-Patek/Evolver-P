@@ -36,4 +36,16 @@ impl AffineTuple {
             q_shift: new_q,
         })
     }
+
+    // [NEW FEATURE for Crystal Brain]: 逆向操作辅助函数
+    // 用于 Oracle 从聚合状态中尝试分离出潜在的 Token Prime
+    // 如果 self.p_factor 能被 denominator 整除，返回商 (Quotient)，否则返回 None
+    pub fn try_divide_p(&self, denominator: &Integer) -> Option<Integer> {
+        let (quotient, rem) = self.p_factor.div_rem_ref(denominator).into();
+        if rem == Integer::from(0) {
+            Some(quotient)
+        } else {
+            None
+        }
+    }
 }
