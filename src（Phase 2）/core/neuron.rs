@@ -7,7 +7,7 @@ use crate::net::wire::HtpResponse; // 复用 ProofBundle 结构
 use rug::Integer;
 use std::sync::{Arc, RwLock};
 
-/// 🧠 HTPNeuron: 仿射神经元
+/// HTPNeuron: 仿射神经元
 /// 不再处理浮点数，而是吞吐代数元组，进行逻辑演化。
 pub struct HTPNeuron {
     /// [Semantic Fingerprint]: 神经元的“权重”，一个代表特定语义（如“科技”）的大素数
