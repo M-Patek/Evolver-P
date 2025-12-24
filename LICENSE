@@ -1,0 +1,33 @@
+M-Patek PROPRIETARY LICENSE
+Version 1.0, December 2025
+
+COPYRIGHT (C) 2025 M-Patek. ALL RIGHTS RESERVED.
+1. OWNERSHIP
+   The software, source code, documentation, and algorithms ("Software") contained 
+   in this repository are the exclusive proprietary property of M-Patek 
+   ("Licensor").
+All intellectual property rights, including copyrights, patents, 
+   and trade secrets, belong solely to the Licensor.
+2. GRANT OF LICENSE (EVALUATION ONLY)
+   Licensor hereby grants you a personal, non-transferable, non-exclusive, 
+   revocable, and limited license to access and view the Software solely for the 
+   purpose of technical evaluation and architectural review.
+3. RESTRICTIONS
+   You generally may NOT:
+   (a) Copy, reproduce, distribute, or publicly display the Software;
+(b) Modify, adapt, translate, or create derivative works from the Software;
+(c) Reverse engineer, decompile, disassemble, or attempt to derive the source 
+       code of any binary components;
+(d) Use the Software for any commercial purpose, including but not limited to 
+       incorporating it into other products or services;
+(e) Remove or alter any copyright, proprietary, or legal notices.
+4. NO WARRANTY
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+5. TERMINATION
+   This license is effective until terminated.
+Your rights under this license will 
+   terminate automatically without notice if you fail to comply with any of its 
+   terms.
+VIOLATION OF THESE TERMS MAY RESULT IN CIVIL AND CRIMINAL PENALTIES.
