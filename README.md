@@ -41,7 +41,7 @@ Evolver 建立在 **Hyper-Tensor Protocol (HTP)** 的数学原语之上，利用
 | 特性 | Transformer (Classic) | Evolver (Our Design) |
 | :--- | :--- | :--- |
 | **核心逻辑** | 概率统计 (Softmax) | 代数演化 (Group Action) |
-| **上下文处理** | 扫描历史 (Attention, $O(N^2)$) | 全息坍缩 (Folding, $O(\log N)$) |
+| **上下文处理** | 扫描历史 (Attention, $O(N^2)$ ) | 全息坍缩 (Folding, $O(\log N)$ ) |
 | **语义管理** | 向量叠加 (Superposition) | 正交隔离与递归 (Orthogonal Anchoring) |
 | **长文本能力** | 受限于窗口，易迷失 | 无限上下文，深度指纹 |
 | **抗干扰** | 输出依据相似度匹配 (Guessing) | 路径闭环 (Proving) |
