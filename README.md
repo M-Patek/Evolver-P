@@ -76,7 +76,7 @@ If verification fails, it indicates the model has produced a "mathematical hallu
 
 ## ⚡ Performance Comparison
 
-| Feature | Transformer (Attention Mechanism) | Evolver (Non-Commutative Evolution) |
+| Feature | Transformer (Attention Mechanism) | Evolver (HTP Mechanism) |
 | :--- | :--- | :--- |
 | **Core Logic** | Statistics | Algebraic Evolution |
 | **Weight Form** | Float Matrices (Float32) | Large Prime Fingerprints |
