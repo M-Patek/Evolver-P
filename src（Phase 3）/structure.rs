@@ -7,14 +7,14 @@ use crate::core::primes::hash_to_prime;
 use rug::Integer;
 use std::sync::{Arc, RwLock};
 
-/// 💎 CrystalLayer: 并行神经元层
-pub struct CrystalLayer {
+/// 💎 EvolutionaryLayer: 并行神经元层
+pub struct EvolutionaryLayer {
     /// [Thread-Safety]: 使用 RwLock 包装神经元，允许在训练时获取写锁进行突变
     pub neurons: Vec<Arc<RwLock<HTPNeuron>>>,
     pub width: usize,
 }
 
-impl CrystalLayer {
+impl EvolutionaryLayer {
     pub fn new(width: usize, dim: usize, side_len: usize, discriminant: Integer) -> Self {
         let mut neurons = Vec::new();
         for i in 0..width {
@@ -25,7 +25,7 @@ impl CrystalLayer {
             let neuron = HTPNeuron::new(p_weight, dim, side_len, discriminant.clone());
             neurons.push(Arc::new(RwLock::new(neuron)));
         }
-        CrystalLayer { neurons, width }
+        EvolutionaryLayer { neurons, width }
     }
 
     /// 前向传播：Stream(In) -> [Neurons] -> Stream(Out)
@@ -48,7 +48,7 @@ impl CrystalLayer {
 
 /// 🧠 HTPModel: The Crystal Brain
 pub struct HTPModel {
-    pub layers: Vec<CrystalLayer>,
+    pub layers: Vec<EvolutionaryLayer>,
     pub discriminant: Integer,
 }
 
@@ -56,7 +56,7 @@ impl HTPModel {
     pub fn new(layer_configs: Vec<(usize, usize, usize)>, discriminant: Integer) -> Self {
         let mut layers = Vec::new();
         for (width, dim, side_len) in layer_configs {
-            layers.push(CrystalLayer::new(width, dim, side_len, discriminant.clone()));
+            layers.push(EvolutionaryLayer::new(width, dim, side_len, discriminant.clone()));
         }
         HTPModel { layers, discriminant }
     }
