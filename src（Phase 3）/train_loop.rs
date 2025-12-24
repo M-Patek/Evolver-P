@@ -1,20 +1,18 @@
+// src/phase3/train_loop.rs
 // COPYRIGHT (C) 2025 M-Patek. ALL RIGHTS RESERVED.
 
-use crate::phase3::structure::{HTPModel, CrystalLayer};
+use crate::phase3::structure::HTPModel;
 use crate::phase3::decoder::InverseDecoder;
 use crate::core::primes::hash_to_prime;
-use crate::core::neuron::HTPNeuron;
-use rug::Integer;
-use std::sync::{Arc, RwLock}; // 我们需要锁来修改权重
+use std::sync::{Arc, RwLock};
 use rand::Rng;
 
 /// 🧬 EvolutionaryTrainer: 进化训练器
-/// 既然无法求导，我们就通过“适者生存”法则来训练网络。
 pub struct EvolutionaryTrainer {
-    pub model: Arc<RwLock<HTPModel>>, // 模型本身需要支持内部变异
+    /// 模型本身被 RwLock 保护，以便我们可以修改其结构或参数
+    pub model: Arc<RwLock<HTPModel>>,
     pub decoder: InverseDecoder,
-    pub learning_rate: f64, // 这里代表“突变概率”
-    pub mutation_strength: u32, // 突变时跳跃的幅度
+    pub learning_rate: f64, // 突变概率 (Mutation Probability)
 }
 
 impl EvolutionaryTrainer {
@@ -22,131 +20,96 @@ impl EvolutionaryTrainer {
         EvolutionaryTrainer {
             model,
             decoder: InverseDecoder::new(vocab_size),
-            learning_rate: 0.1, // 10% 的概率发生严重突变
-            mutation_strength: 1, 
+            learning_rate: 0.05, // 5% 的概率发生突变
         }
     }
 
-    /// 🏋️ Train Step: 单步进化
-    /// 1. Forward -> 2. Check Math Error -> 3. Mutate or Reinforce
+    /// 🏋️ Train Step: 单步进化循环
     pub fn train_step(&mut self, input_ids: &[u32], target_id: u32) -> Result<f32, String> {
         // [Step 1]: Forward Pass (推理)
-        // 获取读锁进行推理
+        // 获取模型读锁，进行计算
         let prediction_root = {
             let model_guard = self.model.read().map_err(|_| "Model Lock Poisoned")?;
             model_guard.forward(input_ids)?
         };
 
-        // [Step 2]: Decode & Navigation (导航)
-        // 尝试将代数结果还原为 Token
+        // [Step 2]: Decode & Check (验证)
         let predicted_id = self.decoder.decode(&prediction_root)
-            .unwrap_or(u32::MAX); // 如果彻底迷失，给一个错误值
+            .unwrap_or(u32::MAX); // 如果导航失败，设为 MAX
 
         let is_correct = predicted_id == target_id;
         
-        // 计算“语义距离”作为 Loss (仅供观察，不参与梯度)
-        // 这里简化为 0 (正确) 或 1 (错误)
+        // Loss 仅用于监控，不用于梯度
         let loss = if is_correct { 0.0 } else { 1.0 };
 
-        // [Step 3]: Feedback Loop (反馈)
+        // [Step 3]: Evolution (进化)
         if is_correct {
             self.reward_path();
         } else {
-            // 发生了 Math Error (幻觉)，立即惩罚！
-            self.punish_path_mutation(loss);
+            // 预测错误 -> 触发突变
+            self.punish_path_mutation();
         }
 
         Ok(loss)
     }
 
-    /// 🍬 Reward: 奖励机制
-    /// 预测正确！该路径上的神经元证明了它们的代数结构是自洽的。
-    /// 策略：保持现状，或者微调 memory (强化记忆)。
     fn reward_path(&self) {
-        // 在 HTP 理论中，"Survival is the only reward".
-        // 存活下来的神经元不需要改变，它们的权重（素数）就是对的。
-        // 可选：增加该路径神经元的 "Confidence" 计数器（暂未实现）
-        println!("✨ [Correct] Crystal path validated. No mutation needed.");
+        // 正确的路径不需要改变，这就是最好的奖励。
+        // 可选：记录日志
+        // println!("✨ Logic Path Validated.");
     }
 
-    /// ☣️ Punishment: 突变惩罚
-    /// 预测错误！说明当前的代数路径无法闭环。
-    /// 策略：随机选择参与计算的神经元，强制修改它们的 Semantic Fingerprint (P_weight)。
-    fn punish_path_mutation(&mut self, _error_magnitude: f32) {
+    /// ☣️ Mutation Logic: 核心代码
+    /// 这里演示了如何穿透 Arc 和 RwLock 来修改底层数据
+    fn punish_path_mutation(&mut self) {
         let mut rng = rand::thread_rng();
-        let mut model_guard = self.model.write().expect("Lock poisoned during mutation");
+        
+        // 1. 获取模型的写锁 (Write Lock)
+        // 这会暂时阻塞所有的读取操作，确保突变时的独占访问
+        let mut model_guard = self.model.write().expect("Model Lock Poisoned during mutation");
 
-        println!("💥 [Math Error] Logic collapsed. Initiating mutation...");
+        // println!("💥 Mutation triggered: Rewiring neurons...");
 
-        // 遍历所有层
+        // 2. 遍历每一层
         for layer in &mut model_guard.layers {
-            // 随机挑选几个“倒霉”的神经元进行突变
-            // 这是一个随机搜索过程 (Stochastic Search)
-            for neuron_arc in &layer.neurons {
+            // 3. 随机遍历神经元
+            for neuron_lock in &layer.neurons {
+                // 根据学习率决定是否突变这个神经元
                 if rng.gen_bool(self.learning_rate) {
-                    // 为了修改 Arc 内部的数据，我们需要 HTPNeuron 支持内部可变性
-                    // 或者我们在 Layer 定义时就使用了 RwLock<HTPNeuron>
-                    // 这里假设我们在 structure.rs 中已经做好了准备，或者我们执行“热替换”
                     
-                    // [Simulation]: 模拟权重突变
-                    // 旧的素数 P_old -> 新的素数 P_new
-                    // 这种突变改变了神经元的“语义定义”
-                    
-                    // 注意：在实际 Rust 代码中，Arc<HTPNeuron> 是不可变的。
-                    // 真正的实现需要 layer.neurons 存储 Arc<RwLock<HTPNeuron>>。
-                    // 此处演示核心逻辑：
-                    
-                    if let Some(neuron_mut) = Arc::get_mut(neuron_arc) {
-                        // 这是一个极其暴力的操作：直接改变神经元的本质
-                        let new_seed = format!("mutated_{}", rng.gen::<u64>());
-                        if let Ok(new_prime) = hash_to_prime(&new_seed, 128) {
+                    // 4. 获取神经元的写锁 (关键步骤！)
+                    // 这里的 `write()` 让我们获得了 `&mut HTPNeuron`
+                    let mut neuron_mut = neuron_lock.write().expect("Neuron Lock Poisoned");
+
+                    // 5. 执行突变：改变语义指纹 (p_weight)
+                    // 使用新的随机种子生成素数
+                    let new_seed = format!("mutated_{}_{}", 
+                        rng.gen::<u64>(), 
+                        neuron_mut.discriminant // 混入一些熵
+                    );
+
+                    match hash_to_prime(&new_seed, 128) {
+                        Ok(new_prime) => {
+                            // [Action A]: 更新权重
                             neuron_mut.p_weight = new_prime;
-                            // 清空记忆，因为语义变了，旧记忆无效
-                            if let Ok(mut mem) = neuron_mut.memory.write() {
-                                mem.data.clear();
+
+                            // [Action B]: 清空记忆张量
+                            // 因为语义变了，旧的记忆变成了垃圾数据，必须清除
+                            // memory 也是一个 Arc<RwLock>，需要再次获取写锁
+                            if let Ok(mut memory_guard) = neuron_mut.memory.write() {
+                                memory_guard.data.clear();
+                                memory_guard.cached_root = None;
                             }
-                            println!("   🧬 Neuron mutated: Re-hashed semantic fingerprint.");
+
+                            // println!("   🧬 Neuron re-hashed.");
+                        },
+                        Err(_) => {
+                            // 如果生成素数失败（极罕见），跳过
+                            continue;
                         }
-                    } else {
-                        // 如果无法获取可变引用（通常是因为并在使用中），
-                        // 我们在真实系统中会 clone 并替换整个 Arc
-                        println!("   ⚠️ Skip mutation: Neuron is busy (Arc locked).");
                     }
                 }
             }
         }
     }
-
-    /// 🔄 Training Loop Demo
-    pub fn run_demo_loop(&mut self, epochs: usize) {
-        // 模拟数据：(Context, Target)
-        let dummy_data = vec![
-            (vec![1, 2, 3], 4), // Context: A, B, C -> Target: D
-            (vec![10, 20], 30),
-            (vec![99, 100], 101),
-        ];
-
-        for epoch in 0..epochs {
-            println!("--- Epoch {} ---", epoch);
-            let mut total_loss = 0.0;
-            
-            for (input, target) in &dummy_data {
-                match self.train_step(input, *target) {
-                    Ok(loss) => total_loss += loss,
-                    Err(e) => println!("Error: {}", e),
-                }
-            }
-
-            if total_loss == 0.0 {
-                println!("🎉 Convergence Reached! The Crystal Brain is perfect.");
-                break;
-            }
-        }
-    }
 }
-
-// -------------------------------------------------------------------------
-// Helper for structure.rs compatibility (Mocking the mutation requirement)
-// -------------------------------------------------------------------------
-// 为了让上面的 Arc::get_mut 工作，我们需要确保没有其他线程持有 Arc。
-// 在训练阶段，这通常是单线程进行的，或者使用 RwLock 包装。
