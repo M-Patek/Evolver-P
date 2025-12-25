@@ -4,7 +4,7 @@ use crate::core::affine::AffineTuple;
 use crate::core::primes::hash_to_prime;
 use crate::topology::tensor::Coordinate;
 use rug::Integer;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet}; // [FIX]: 引入 HashSet 用于冲突检测
 
 /// [Optimization]: K-D Tree Node
 /// 用于加速高维空间最近邻搜索的数据结构
@@ -41,9 +41,15 @@ impl VocabularyTensor {
         let mut prime_to_id = HashMap::new();
         let mut spatial_index = Vec::new();
         
+        // [THEORETICAL FIX]: DCAP (Deterministic Collision-Avoidance Protocol)
+        // 引入占用集合，充当数学上的“守门人”，确保映射的单射性 (Injectivity)。
+        // 即使概率极低，我们也必须在物理上禁止两个不同的 Token 映射到同一个素数。
+        let mut occupied_primes: HashSet<Integer> = HashSet::new();
+
         let l = side_length as u64;
         
         // 初始化宇宙：将所有 Token 映射到空间中
+        // [IMPORTANT]: 必须严格按顺序遍历，以保证确定性 (Determinism)
         for tid in 0..vocab_size {
             // 1. 计算确定性坐标
             let mut coord = Vec::with_capacity(dimensions);
@@ -53,14 +59,17 @@ impl VocabularyTensor {
                 temp /= l;
             }
 
-            // 2. 计算 Token Prime (语义指纹)
-            let token_str = format!("tok_{}", tid);
-            // 这里为了演示稳定性，假设 hash_to_prime 总是成功的
-            if let Ok(p) = hash_to_prime(&token_str, 64) {
-                star_map.insert(coord.clone(), p.clone());
-                prime_to_id.insert(p, tid);
-                spatial_index.push(coord);
-            }
+            // 2. [DCAP Algorithm]: 生成绝对唯一的 Token Prime (语义指纹)
+            let base_token_str = format!("tok_{}", tid);
+            
+            // 调用带有冲突检测的生成器
+            let p = Self::generate_unique_prime(&base_token_str, &occupied_primes);
+            
+            // 3. 注册并建立映射
+            occupied_primes.insert(p.clone()); // 标记为已占用
+            star_map.insert(coord.clone(), p.clone());
+            prime_to_id.insert(p, tid);
+            spatial_index.push(coord);
         }
 
         // [PERFORMANCE FIX]: 构建 K-D Tree
@@ -78,6 +87,50 @@ impl VocabularyTensor {
         }
     }
 
+    /// 🛡️ [DCAP Helper]: 确定性唯一素数生成器
+    /// 如果发生碰撞 (Birthday Paradox)，通过引入确定性 Nonce 进行微扰，
+    /// 直到找到一个未被占用的素数插槽。
+    /// 
+    /// 复杂度分析：
+    /// - Best Case: O(1) - 无冲突
+    /// - Worst Case: O(k) - k 为冲突次数，实际极低
+    fn generate_unique_prime(base_str: &str, occupied: &HashSet<Integer>) -> Integer {
+        let mut nonce = 0u64;
+        // 安全逃生舱：防止理论上的无限循环（素数耗尽或哈希失效）
+        // 100万次尝试足够覆盖任何概率性碰撞
+        const MAX_COLLISION_RETRIES: u64 = 1_000_000;
+
+        while nonce < MAX_COLLISION_RETRIES {
+            // 构造输入：第一次尝试用原始串，后续尝试加 Nonce 后缀
+            // 格式化为 "tok_X#collision_fix_N" 确保不会与正常的 "tok_Y" 混淆
+            let input_str = if nonce == 0 {
+                base_str.to_string()
+            } else {
+                format!("{}#collision_fix_{}", base_str, nonce)
+            };
+
+            // 调用底层的 hash_to_prime
+            // 这里我们假设 bit_size = 64，这是 Phase 3 的标准配置
+            if let Ok(candidate) = hash_to_prime(&input_str, 64) {
+                // [CRITICAL CHECK]: 核心逻辑 - 检查是否撞车
+                if !occupied.contains(&candidate) {
+                    // 胜利！找到唯一指纹
+                    if nonce > 0 {
+                        // 生产环境可注释掉此日志，保留用于调试
+                        // println!("⚠️ [DCAP] Resolved Hash Collision for '{}' with nonce {}", base_str, nonce);
+                    }
+                    return candidate;
+                }
+            }
+            
+            // 发生撞车或生成失败，增加干扰因子，继续寻找空位
+            nonce += 1;
+        }
+
+        // 如果运行到这里，说明数学规律失效或者宇宙毁灭了
+        panic!("❌ Fatal Error: Vocabulary Space Exhausted. Unable to assign unique prime for '{}'", base_str);
+    }
+
     /// 递归构建平衡 K-D Tree
     fn build_kdtree(points: &mut [Coordinate], depth: usize, k: usize) -> Option<Box<KdNode>> {
         if points.is_empty() {
@@ -89,8 +142,7 @@ impl VocabularyTensor {
         points.sort_by(|a, b| a[axis].cmp(&b[axis]));
         let mid = points.len() / 2;
 
-        // 这里使用了 split_at_mut 来分割切片，但这需要所有权处理
-        // 简单起见，我们交换中位数到中间，并递归处理
+        // 这里使用了 split_at_mut 来分割切片
         let point = points[mid].clone();
         
         // 分割数组：[0..mid] 为左子树，[mid+1..] 为右子树
