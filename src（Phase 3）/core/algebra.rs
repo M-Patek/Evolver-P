@@ -59,18 +59,47 @@ impl ClassGroupElement {
         self.compose(self, discriminant)
     }
 
+    /// 🛡️ [SECURITY FIX]: Constant-Sequence Exponentiation (Montgomery Ladder)
+    /// 
+    /// 原始的 "Square-and-Multiply" 存在严重的分支预测泄露风险 (if c == '1')。
+    /// 即使 GMP 本身不是恒定时间的，我们也必须在算法层面消除数据依赖分支。
+    /// 
+    /// Montgomery Ladder 保证了每一位都严格执行一次 compose 和一次 square，
+    /// 从而隐藏了指数 P 的比特模式。
     pub fn pow(&self, exp: &Integer, discriminant: &Integer) -> Result<Self, String> {
-        let mut res = Self::identity(discriminant);
-        let mut base = self.clone();
-        let bits = exp.to_string_radix(2); 
+        // R0 存储当前结果，R1 存储下一阶
+        // 初始状态: R0 = 1, R1 = Base
+        let mut r0 = Self::identity(discriminant);
+        let mut r1 = self.clone();
+        
+        // 获取指数的二进制位，从高位到低位处理
+        let bits_count = exp.significant_bits();
 
-        for c in bits.chars() {
-            res = res.square(discriminant)?;
-            if c == '1' {
-                res = res.compose(&base, discriminant)?;
+        for i in (0..bits_count).rev() {
+            let bit = exp.get_bit(i);
+
+            if !bit {
+                // bit == 0:
+                // R1 = R0 * R1
+                // R0 = R0 * R0
+                // (注意顺序，防止覆盖)
+                let new_r1 = r0.compose(&r1, discriminant)?;
+                let new_r0 = r0.square(discriminant)?;
+                r1 = new_r1;
+                r0 = new_r0;
+            } else {
+                // bit == 1:
+                // R0 = R0 * R1
+                // R1 = R1 * R1
+                let new_r0 = r0.compose(&r1, discriminant)?;
+                let new_r1 = r1.square(discriminant)?;
+                r0 = new_r0;
+                r1 = new_r1;
             }
         }
-        Ok(res)
+        
+        // Ladder 结束时，r0 即为结果
+        Ok(r0)
     }
 
     // [SECURITY FIX]: 模拟恒定时间执行，移除明显的数据依赖分支 (防侧信道攻击)
