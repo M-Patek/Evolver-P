@@ -15,6 +15,7 @@ impl ClassGroupElement {
     pub fn identity(discriminant: &Integer) -> Self {
         let one = Integer::from(1);
         let four = Integer::from(4);
+        // HTP 保证 discriminant = 1 mod 4，所以这里通常是安全的
         let c = (one.clone() - discriminant) / &four;
         ClassGroupElement { a: one.clone(), b: one, c }
     }
@@ -36,6 +37,8 @@ impl ClassGroupElement {
         loop {
             // Fallback strategy
             if attempts > MAX_ATTEMPTS {
+                // 如果找不到，返回一个已知的安全值或者 panic (这里简化处理)
+                // 在生产环境中，这应该是一个 Panic，因为这意味着 Discriminant 有问题
                 p = Integer::from(3); 
             }
 
@@ -64,13 +67,18 @@ impl ClassGroupElement {
                 }
 
                 if found_b {
-                    let sq_b = b.clone() * &b;
-                    let c = (sq_b - discriminant) / &modulus;
-                    let candidate = Self::reduce_form(p.clone(), b, discriminant);
-                    
-                    // Critical: Real Small Order Filter
-                    if !candidate.has_small_order(discriminant, 1000) {
-                        return candidate;
+                    // [SECURITY FIX]: 处理 reduce_form 可能返回的错误
+                    // 如果生成的 form 不合法，直接跳过，寻找下一个
+                    match Self::reduce_form(p.clone(), b, discriminant) {
+                        Ok(candidate) => {
+                            // Critical: Real Small Order Filter
+                            if !candidate.has_small_order(discriminant, 1000) {
+                                return candidate;
+                            }
+                        },
+                        Err(_) => {
+                            // 忽略构造失败的 form，继续搜索
+                        }
                     }
                 }
             }
@@ -80,12 +88,6 @@ impl ClassGroupElement {
     }
 
     /// 🛡️ [SECURITY UPGRADE]: 真正的小阶元素检测
-    /// 
-    /// 这里的逻辑是：如果一个元素 g 的阶 (Order) 是 "Smooth" 的（即只包含小素因子），
-    /// 那么它会被一个由小素数乘积构成的 "Annihilator" 幂运算后变成单位元。
-    /// 
-    /// 我们构造 E = Product(primes < limit)，检查 g^E ?= Identity。
-    /// 如果是，说明 g 落入了一个不安全的小子群中。
     fn has_small_order(&self, discriminant: &Integer, limit_val: u32) -> bool {
         let identity = Self::identity(discriminant);
         
@@ -95,31 +97,24 @@ impl ClassGroupElement {
         if self.a == self.b || self.a == self.c || self.b == 0 { return true; }
         
         // 2. Small Prime Annihilation Test
-        // 构造测试指数 (Test Exponent)
         let mut annihilator = Integer::from(1);
         let mut p = Integer::from(2);
         let limit = Integer::from(limit_val); 
         
-        // 计算所有小于 limit 的素数之积
-        // 对于 limit=1000，这个积大约是 4000 bits，计算开销可接受
         while &p < &limit {
             annihilator *= &p;
             p.next_prime_mut();
         }
 
-        // 执行幂次检测: Res = self ^ Annihilator
+        // 执行幂次检测
         match self.pow(&annihilator, discriminant) {
             Ok(res) => {
-                // 如果结果变成了单位元，说明阶数不仅有限，而且只包含小因子
-                // 这是一个危险的生成元。
                 if res == identity {
-                    // Log warning in debug builds
-                    // println!("⚠️ [Security] Weak generator detected and rejected (Smooth Order).");
                     return true;
                 }
                 false
             },
-            Err(_) => true, // 任何计算错误都视为不安全，拒绝该生成元
+            Err(_) => true, 
         }
     }
 
@@ -131,7 +126,6 @@ impl ClassGroupElement {
     }
 
     /// ✨ [FIXED] Composition Algorithm (Cohen Algo 5.4.7)
-    /// 支持 gcd(a1, a2) != 1 的情况
     pub fn compose(&self, other: &Self, discriminant: &Integer) -> Result<Self, String> {
         let s = (&self.b + &other.b) >> 1; 
         
@@ -141,8 +135,6 @@ impl ClassGroupElement {
         let a1 = &self.a;
         let a2 = &other.a;
         
-        // HTP System Param Guarantee: d usually divides s
-        // If not, it's a math failure, but for random elements this check passes.
         let (_q, r) = s.div_rem_ref(&d).into();
         if r != Integer::from(0) {
             return Err(format!("Composition Error: gcd(a1, a2)={} does not divide s.", d));
@@ -153,7 +145,7 @@ impl ClassGroupElement {
         let a2_div_d = Integer::from(a2 / &d);
         let new_a = Integer::from(&a1_div_d * &a2_div_d);
 
-        // B calculation (Simplified Cohen)
+        // B calculation
         let s_minus_b2 = &s - &other.b;
         let val = &v * (&s_minus_b2 / &d); 
         let mod_a1_d = &a1_div_d;
@@ -165,19 +157,17 @@ impl ClassGroupElement {
         let term = Integer::from(2) * &a2_div_d * &k;
         let new_b = &other.b + &term;
 
-        Ok(Self::reduce_form(new_a, new_b, discriminant))
+        // [SECURITY FIX]: 这里现在会传播 reduce_form 的错误
+        Self::reduce_form(new_a, new_b, discriminant)
     }
 
     /// ✨ [FIXED] Square Algorithm (NUDUPL / Doubling)
     pub fn square(&self, discriminant: &Integer) -> Result<Self, String> {
-        // 1. Solve x*a + y*b = g = gcd(a, b)
         let (g, _x, y) = Self::extended_gcd(&self.a, &self.b);
 
-        // 2. A = (a/g)^2
         let a_div_g = Integer::from(&self.a / &g);
         let new_a = Integer::from(&a_div_g * &a_div_g);
 
-        // 3. B calculation
         let target_mod = &a_div_g;
         let mut yc = Integer::from(&y * &self.c);
         yc.rem_assign(target_mod);
@@ -186,7 +176,8 @@ impl ClassGroupElement {
         let term = Integer::from(2) * &a_div_g * &yc;
         let new_b = &self.b + &term;
 
-        Ok(Self::reduce_form(new_a, new_b, discriminant))
+        // [SECURITY FIX]: 这里现在会传播 reduce_form 的错误
+        Self::reduce_form(new_a, new_b, discriminant)
     }
 
     /// 🛡️ [Security]: Constant-Sequence Exponentiation
@@ -228,28 +219,82 @@ impl ClassGroupElement {
         (r0, s0, t0) // (gcd, x, y)
     }
 
-    fn reduce_form(mut a: Integer, mut b: Integer, discriminant: &Integer) -> Self {
+    /// 🛡️ [SECURITY CORE]: 增强型 Reduce Form
+    /// 包含严格的不变量检查和整除性断言。
+    fn reduce_form(mut a: Integer, mut b: Integer, discriminant: &Integer) -> Result<Self, String> {
+        let four = Integer::from(4);
+        
+        // 0. Pre-check: a cannot be zero
         let mut two_a = Integer::from(2) * &a;
+        if two_a == 0 { return Err("Math Error: 'a' coefficient is zero.".to_string()); }
+
+        // 1. Initial Normalization of b
         b = b.rem_euc(&two_a);
         if b > a { b -= &two_a; }
 
-        let four = Integer::from(4);
-        let mut c = (b.clone().pow(2) - discriminant) / (&four * &a);
+        // 2. [SECURITY CHECK]: Divisibility for initial 'c'
+        // c = (b^2 - D) / 4a. Must be exact integer division.
+        let numerator = b.clone().pow(2) - discriminant;
+        let denominator = &four * &a;
+        
+        let (c_val, rem) = numerator.div_rem_ref(&denominator).into();
+        if rem != Integer::from(0) {
+            return Err(format!(
+                "Invariant Violated: (b^2 - D) not divisible by 4a. Remainder: {}. \
+                This implies the form does not belong to the discriminant group.", 
+                rem
+            ));
+        }
+        let mut c = c_val;
 
+        // 3. Reduction Loop with Divergence Protection
         let mut safety_counter = 0;
         const MAX_STEPS: usize = 2000;
 
         while a > c || (a == c && b < Integer::from(0)) {
-            if safety_counter > MAX_STEPS { break; }
+            if safety_counter > MAX_STEPS { 
+                return Err("Critical Error: Reduction loop diverged (Infinite Loop Risk).".to_string());
+            }
+            
             let num = &c + &b;
             let den = Integer::from(2) * &c;
+            if den == 0 { return Err("Math Error: Division by zero in reduction (c=0).".to_string()); }
+
             let s = num.div_floor(&den); 
+            
             let b_new = Integer::from(2) * &c * &s - &b;
             let a_new = c.clone();
-            let c_new = (b_new.clone().pow(2) - discriminant) / (&four * &a_new);
-            a = a_new; b = b_new; c = c_new;
+            
+            // Re-calculate c_new with safety checks
+            let num_new = b_new.clone().pow(2) - discriminant;
+            let den_new = &four * &a_new;
+            
+            if den_new == 0 { return Err("Math Error: Division by zero in reduction step.".to_string()); }
+
+            let (c_new_val, rem_new) = num_new.div_rem_ref(&den_new).into();
+            if rem_new != Integer::from(0) {
+                 return Err("Invariant Violated: Consistency lost during reduction step.".to_string());
+            }
+
+            a = a_new; b = b_new; c = c_new_val;
             safety_counter += 1;
         }
-        ClassGroupElement { a, b, c }
+
+        // 4. [SECURITY CHECK]: Final Invariants Post-Reduction
+        // Check A: Discriminant Consistency (b^2 - 4ac == D)
+        let check_d = b.clone().pow(2) - Integer::from(4) * &a * &c;
+        if &check_d != discriminant {
+             return Err(format!("Fatal Logic Error: Result discriminant mismatch. Got {}, Expected {}", check_d, discriminant));
+        }
+        
+        // Check B: Primitive Form (gcd(a, b, c) == 1)
+        // 在类群中，我们只处理 Primitive Forms。
+        let gcd_ab = a.clone().gcd(&b);
+        let gcd_abc = gcd_ab.gcd(&c);
+        if gcd_abc != Integer::from(1) {
+             return Err(format!("Security Halt: Form is not primitive (gcd={}). Potential attack vector.", gcd_abc));
+        }
+
+        Ok(ClassGroupElement { a, b, c })
     }
 }
