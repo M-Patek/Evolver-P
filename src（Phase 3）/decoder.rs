@@ -59,6 +59,13 @@ impl VocabularyTensor {
     }
 }
 
+/// [NEW STRUCT]: 解码结果，包含漂移量
+/// 用于量化生成的精确度
+pub struct DecodeResult {
+    pub token_id: u32,
+    pub drift: usize, // 曼哈顿距离
+}
+
 /// 🧭 InverseDecoder: 坐标导航器
 pub struct InverseDecoder {
     pub vocab_tensor: VocabularyTensor,
@@ -74,30 +81,37 @@ impl InverseDecoder {
 
     /// 📍 Decode: Target Root -> Coordinate -> Nearest Token
     /// 解析模型输出的“高维词根”，还原为 Token。
-    /// 包含自动纠错 (Auto-Correction) 机制。
-    pub fn decode(&self, target_root: &AffineTuple) -> Result<u32, String> {
+    /// 包含自动纠错 (Auto-Correction) 机制，并报告漂移值。
+    pub fn decode(&self, target_root: &AffineTuple) -> Result<DecodeResult, String> {
         // 1. Extract Coordinate (投影)
         let predicted_coord = self.extract_coordinate(target_root);
 
-        // 2. Exact Match Check (精确打击)
+        // 2. Exact Match Check (精确打击 - Zero Drift)
         if let Some(token_prime) = self.vocab_tensor.star_map.get(&predicted_coord) {
              if let Some(&tid) = self.vocab_tensor.prime_to_id.get(token_prime) {
-                 return Ok(tid);
+                 return Ok(DecodeResult {
+                     token_id: tid,
+                     drift: 0, // 完美命中
+                 });
              }
         }
 
-        // 3. KNN Search (模糊导航)
+        // 3. KNN Search (模糊导航 - Non-Zero Drift)
         // 如果落入了虚空，寻找最近的有效坐标
-        // 主人，这就好比在大海上定位最近的岛屿喵！
         if let Some(nearest_coord) = self.find_nearest_neighbor(&predicted_coord) {
             let token_prime = self.vocab_tensor.star_map.get(&nearest_coord).unwrap();
             let tid = self.vocab_tensor.prime_to_id.get(token_prime).unwrap();
             
-            // 可选：在这里记录“漂移距离”，用于计算 Loss
-            // let drift = self.manhattan_distance(&predicted_coord, &nearest_coord);
-            // println!("⚠️ Drift Detected: {} units. Corrected to Token {}", drift, tid);
+            // 计算漂移距离 (Penalty Score)
+            let drift = self.manhattan_distance(&predicted_coord, &nearest_coord);
             
-            return Ok(*tid);
+            // 可以在日志中记录严重的漂移
+            // if drift > 5 { println!("⚠️ Significant Drift Detected: {} units.", drift); }
+            
+            return Ok(DecodeResult {
+                token_id: *tid,
+                drift,
+            });
         }
 
         Err("❌ Navigation Lost: Entropy too high, no nearby stars found.".to_string())
@@ -133,7 +147,7 @@ impl InverseDecoder {
             let dist = self.manhattan_distance(target, candidate);
             
             if dist == 0 {
-                return Some(candidate.clone()); // 距离为0虽然前面check过了，以防万一
+                return Some(candidate.clone());
             }
 
             if dist < min_dist {
@@ -146,8 +160,6 @@ impl InverseDecoder {
     }
 
     /// 📏 Manhattan Distance
-    /// d = |x1-x2| + |y1-y2| + ...
-    /// 在网格状的张量拓扑中，曼哈顿距离比欧氏距离更符合“路由跳数”的概念
     fn manhattan_distance(&self, a: &Coordinate, b: &Coordinate) -> usize {
         a.iter()
             .zip(b.iter())
