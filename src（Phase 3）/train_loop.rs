@@ -5,7 +5,8 @@ use crate::phase3::structure::HTPModel;
 use crate::phase3::decoder::InverseDecoder;
 use crate::core::primes::hash_to_prime;
 use std::sync::{Arc, RwLock};
-use rand::Rng;
+use rand::{Rng, RngCore}; // [Updated Import]: 引入 RngCore 以支持 fill_bytes
+use rand::rngs::OsRng;     // [Updated Import]: 引入操作系统级 CSPRNG
 use rug::Integer;
 
 /// 突变策略枚举
@@ -122,7 +123,11 @@ impl EvolutionaryTrainer {
 
     /// 通用突变逻辑 (Memetic Algorithm Implementation)
     fn mutate_network(&mut self, strategy: MutationStrategy) {
-        let mut rng = rand::thread_rng();
+        // [PERFORMANCE NOTE]: 
+        // 这里的 rng 仅用于决定是否发生突变 (概率判断) 和 LocalShift 的随机游走。
+        // 对于关键的 HardReset 密钥生成，我们将在内部使用 OsRng。
+        let mut rng = rand::thread_rng(); 
+        
         let mut model_guard = self.model.write().expect("Model Lock Poisoned during mutation");
 
         for layer in &mut model_guard.layers {
@@ -146,8 +151,20 @@ impl EvolutionaryTrainer {
                                     memory_guard.cached_root = None;
                                 }
                             } else {
-                                // 传统的随机重置
-                                let new_seed = format!("hard_mut_{}_{}", rng.gen::<u64>(), neuron_mut.discriminant);
+                                // [SECURITY FIX]: 升级为 CSPRNG (Cryptographically Secure PRNG)
+                                // 之前的 thread_rng().gen::<u64>() 熵不足 (64-bit) 且非密码学安全，
+                                // 容易被攻击者通过监控进化路径来预测下一个素数权重。
+                                // 这里我们从操作系统熵源获取 32 字节 (256-bit) 的真随机数。
+                                let mut entropy_bytes = [0u8; 32];
+                                OsRng.fill_bytes(&mut entropy_bytes);
+                                
+                                // 将随机字节转为十六进制字符串作为种子
+                                let entropy_hex: String = entropy_bytes.iter()
+                                    .map(|b| format!("{:02x}", b))
+                                    .collect();
+
+                                let new_seed = format!("hard_mut_{}_{}", entropy_hex, neuron_mut.discriminant);
+                                
                                 if let Ok(new_prime) = hash_to_prime(&new_seed, 128) {
                                     neuron_mut.p_weight = new_prime;
                                     if let Ok(mut memory_guard) = neuron_mut.memory.write() {
@@ -167,8 +184,7 @@ impl EvolutionaryTrainer {
                             let direction = if rng.gen_bool(0.5) { 1 } else { -1 };
                             
                             // 寻找邻近的素数 (Simulated Gradient)
-                            // Rug 的 next_prime 寻找大于当前值的下一个素数
-                            // 这里的逻辑简化处理：我们尝试加减一个偏移量然后找素数
+                            // 这里的随机性仅用于探索，不涉及密钥生成的安全性，因此 thread_rng 足够
                             let offset = Integer::from(rng.gen_range(100..10000));
                             let candidate_base = if direction == 1 {
                                 current_p.clone() + offset
@@ -180,9 +196,6 @@ impl EvolutionaryTrainer {
                             let new_prime = candidate_base.next_prime();
                             
                             // 更新权重，保留记忆 (Soft Update)
-                            // 注意：改变 P 通常需要清除记忆，因为旧的记忆是基于旧 P 演化的
-                            // 但在 Micro-Mutation 中，我们或许希望保留部分上下文？
-                            // 为了数学严谨性，这里依然清除记忆，依靠输入的重新流式传输来重建状态
                             neuron_mut.p_weight = new_prime;
                             if let Ok(mut memory_guard) = neuron_mut.memory.write() {
                                 memory_guard.data.clear();
