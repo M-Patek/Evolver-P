@@ -2,6 +2,8 @@
 
 use super::tensor::HyperTensor;
 use crate::phase3::core::affine::AffineTuple;
+use crate::phase3::core::algebra::ClassGroupElement;
+use rug::Integer;
 use std::collections::HashMap;
 
 impl HyperTensor {
@@ -20,49 +22,54 @@ impl HyperTensor {
     pub fn compute_root_internal(&self) -> Result<AffineTuple, String> {
         // [Phase 1]: Micro-Fold (Time Aggregation - Non-Commutative)
         // 时间维度：使用 compose (⊕_time)
-        // 保持对因果顺序的敏感性
-        let mut flat_data: HashMap<Vec<usize>, AffineTuple> = HashMap::new();
-        
-        // 由于现在的 HyperTensor 结构变更为 Log wrapper，这里的 data 访问需要适配
-        // 假设我们从 Log 中重构了空间视图，或者这是 Neuron 内部的短期记忆 Tensor
-        // 这里沿用旧的 HashMap 逻辑做演示，实际应遍历 Log
-        
-        // 模拟数据源 (如果是 Log 结构，需先重建视图)
-        // ... (此处代码逻辑依赖于 HyperTensor 具体存储实现，假设 data 字段可用)
-        
-        // [Temporary Fix for Compilation]: 
-        // 假设 HyperTensor 仍保留 data 字段用于短期记忆
-        // 如果变成了 Log，这里应该是对 Log 的快照进行 Fold
-        
-        // 此处逻辑保持原样，重点是 compose 调用
-        /* for (coord, timeline) in &self.data {
-            let mut local_root = AffineTuple::identity(&self.discriminant);
-            for tuple in timeline.events.values() {
-                // Time Dimension: Non-Commutative
-                local_root = local_root.compose(tuple, &self.discriminant)?;
-            }
-            flat_data.insert(coord.clone(), local_root);
-        }
-        */
-        
-        // 为适配 Log 结构，我们假设 Log 已经提供了 flat_data (空间快照)
-        // 这里直接进入 Phase 2
+        // 从 TimeSegmentTree 重建当前的空间快照
+        // 这一步将每个 Cell 内部复杂的历史因果链坍缩为唯一的“现在”状态
         let flat_data = self.reconstruct_spatial_snapshot()?;
 
         // [Phase 2]: Macro-Fold (Spatial Aggregation - Commutative)
         // 空间维度：使用 commutative_merge (⊗_space)
-        // 确保 Fold_xy == Fold_yx
+        // 确保 Fold_xy == Fold_yx，实现多维正交验证的数学闭环
         let root = self.fold_sparse(0, &flat_data)?;
         Ok(root)
     }
 
-    // 辅助：从 Log 重建空间快照
+    /// 🛠️ [FIXED]: 从时间线重建空间快照
+    /// 连接 TimeSegmentTree (Micro) -> Spatial Fold (Macro)
+    /// 填补了之前返回空 Map 的逻辑缺口，使 HyperTensor 真正具备了状态感知能力。
     fn reconstruct_spatial_snapshot(&self) -> Result<HashMap<Vec<usize>, AffineTuple>, String> {
-        // 这是一个 placeholder，实际应从 event_log 构建
-        Ok(HashMap::new()) 
+        let mut snapshot = HashMap::new();
+        let one = Integer::from(1);
+        let identity_q = ClassGroupElement::identity(&self.discriminant);
+
+        // 1. 遍历所有活跃的存储单元 (Cells)
+        // self.data 是 HashMap<Coordinate, TimeSegmentTree>
+        for (coord, time_tree) in &self.data {
+            
+            // 2. [Time Collapse]: 计算时间根
+            // 调用 TimeSegmentTree::root()，这会执行非交换的时间聚合 (compose)
+            // 这一步体现了因果律：历史顺序不同，生成的 root 也不同
+            let cell_time_root = time_tree.root(&self.discriminant)?;
+
+            // 3. [Sparse Optimization]: 稀疏性过滤
+            // 只有非单位元的状态才值得参与昂贵的空间折叠。
+            // 只要 P > 1，说明该节点包含有效信息（Accumulated Weight）。
+            if cell_time_root.p_factor != one {
+                snapshot.insert(coord.clone(), cell_time_root);
+            } else {
+                // ⚠️ 边缘情况检查：
+                // 如果 P=1 但 Q 不是单位元（纯位移/噪声注入），也应该保留。
+                // 这种情况可能发生在 "Zero Weight" 的纯噪声注入步骤。
+                if cell_time_root.q_shift != identity_q {
+                     snapshot.insert(coord.clone(), cell_time_root);
+                }
+            }
+        }
+
+        // 4. 返回快照，供 fold_sparse 使用
+        Ok(snapshot)
     }
 
-    // 稀疏折叠算法
+    // 内存友好的稀疏折叠算法 (O(N) 内存占用)
     fn fold_sparse(
         &self,
         current_dim: usize,
@@ -76,7 +83,7 @@ impl HyperTensor {
              return Ok(AffineTuple::identity(&self.discriminant));
         }
 
-        // 按当前维度的索引分组
+        // 按当前维度的索引分组 O(N)
         let mut groups: HashMap<usize, HashMap<Vec<usize>, AffineTuple>> = HashMap::new();
         for (coord, tuple) in relevant_data {
             if current_dim >= coord.len() { continue; }
@@ -95,8 +102,8 @@ impl HyperTensor {
             let sub_result = self.fold_sparse(current_dim + 1, sub_map)?;
             
             // [CRITICAL FIX]: 使用交换聚合 (Commutative Merge)
-            // layer_agg = layer_agg.compose(&sub_result, ...)?; // OLD (Wrong)
-            layer_agg = layer_agg.commutative_merge(&sub_result, &self.discriminant)?; // NEW (Correct)
+            // 确保 fold 顺序不影响最终结果
+            layer_agg = layer_agg.commutative_merge(&sub_result, &self.discriminant)?;
         }
 
         Ok(layer_agg)
