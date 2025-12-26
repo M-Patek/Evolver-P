@@ -126,6 +126,7 @@ Let $\mathcal{T}_{ij}$ be the element at $x=i, y=j$.
 **RHS:** $\bigotimes_i (\bigotimes_j \mathcal{T}_{ij}) = \prod_{i} \prod_{j} \mathcal{T}_{ij}$
 
 Since the product is over a finite Abelian group, the order of terms does not matter.
+
 **Q.E.D.**
 
 ## 4. Security Reductions
@@ -143,17 +144,20 @@ The security of the space dimension, effectively a product of primes and group e
 #### 4.3.1 Mathematical Possibility
 While the Non-Commutative Time Operator ($\oplus_{\text{time}}$) generally ensures that any perturbation $\varepsilon$ in the input state propagates to the output, there exists a theoretically possible boundary condition known as **"The Kernel Trap."**
 
-Let the perturbation be $\varepsilon \neq 1$.
-If $\varepsilon$ falls into the kernel of the power map $x \mapsto x^P$, i.e.,
+Let the perturbation be $\varepsilon \neq 1$. If $\varepsilon$ falls into the kernel of the power map $x \mapsto x^P$, i.e.,
+
 $$
 \varepsilon^P \equiv 1 \pmod \Delta
 $$
+
 then the output state remains unchanged despite the input mutation:
+
 $$
 \rho(\mathcal{A}, S \cdot \varepsilon) = (S \cdot \varepsilon)^P \cdot Q = S^P \cdot \varepsilon^P \cdot Q = S^P \cdot 1 \cdot Q = \rho(\mathcal{A}, S)
 $$
 
 Mathematically, this occurs if and only if the order of the perturbation element, denoted as $\text{ord}(\varepsilon)$, divides the semantic prime $P$:
+
 $$
 \text{ord}(\varepsilon) \mid P
 $$
@@ -165,15 +169,12 @@ In the HTP engineering implementation, we render the probability of falling into
     By enforcing a discriminant size of $\geq 2048$ bits (see `param.rs`), the size of the Class Group is astronomically large ($\approx \sqrt{|\Delta|}$). This makes the probability of randomly encountering an element with a specific small order effectively zero ($< 2^{-100}$).
 
 2.  **Large Semantic Primes ($P$):**
-    The system weights $P$ are generated via `hash_to_prime` and are guaranteed to be large primes (e.g., 64-bit or 128-bit).
-    Since $P$ is prime:
+    The system weights $P$ are generated via `hash_to_prime` and are guaranteed to be large primes (e.g., 64-bit or 128-bit). Since $P$ is prime:
     * For $\text{ord}(\varepsilon) \mid P$ to hold, $\text{ord}(\varepsilon)$ must be equal to $P$ (since $\varepsilon \neq 1$).
     * This implies the attacker must find an element $\varepsilon$ whose order is exactly the large prime $P$.
 
 3.  **Small Order Filtering (Code Level):**
-    In `algebra.rs`, the `ClassGroupElement::generator` and validation logic explicitly filter out elements with small orders (e.g., 2, 3, 5).
-
-While this does not strictly eliminate elements of order $P$, combined with the **Hidden Order Assumption**, finding an element of a specific large order $P$ without knowing the class number $h(\Delta)$ is computationally equivalent to solving the Discrete Logarithm Problem or factoring the class number, which is infeasible.
+    In `algebra.rs`, the `ClassGroupElement::generator` and validation logic explicitly filter out elements with small orders (e.g., 2, 3, 5). While this does not strictly eliminate elements of order $P$, combined with the **Hidden Order Assumption**, finding an element of a specific large order $P$ without knowing the class number $h(\Delta)$ is computationally equivalent to solving the Discrete Logarithm Problem or factoring the class number, which is infeasible.
 
 **Conclusion:** While the Kernel Trap is a valid algebraic boundary, it is cryptographically inaccessible in the Evolver architecture.
 
@@ -182,8 +183,7 @@ While this does not strictly eliminate elements of order $P$, combined with the 
 ### 5.1 Definitions
 
 **Definition 5.1 (Affine Roots and GlobalRoot_alg)**
-Let each micro-cell aggregate its local history using the Time Operator $\oplus_{\text{time}}$, producing an affine tuple $A_{\text{cell}} = (P_{\text{cell}}, Q_{\text{cell}})$.
-Let the macro-grid fold all cells using the Space Operator $\otimes_{\text{space}}$, producing the algebraic global root:
+Let each micro-cell aggregate its local history using the Time Operator $\oplus_{\text{time}}$, producing an affine tuple $A_{\text{cell}} = (P_{\text{cell}}, Q_{\text{cell}})$. Let the macro-grid fold all cells using the Space Operator $\otimes_{\text{space}}$, producing the algebraic global root:
 
 $$
 A_{\text{alg}} = \bigotimes_{\vec{v} \in T} A_{\text{cell}}(\vec{v}) \quad \text{and} \quad \text{GlobalRoot}_{\text{alg}} := A_{\text{alg}}.
@@ -198,8 +198,7 @@ $$
 \text{Coord} := (\mathbb{Z}/L\mathbb{Z})^d,
 $$
 
-with component-wise addition modulo $L$.
-Define the per-dimension circular distance:
+with component-wise addition modulo $L$. Define the per-dimension circular distance:
 
 $$
 d_L(x, y) := \min(|x - y|, L - |x - y|),
@@ -221,8 +220,7 @@ $$
 No continuity, smoothness, or Lipschitz assumptions are made about $\Psi$. In particular, $\Psi$ may be induced by reduction/canonicalization and thus be effectively discontinuous.
 
 **Definition 5.4 (Linear Bias Channel and Final Output Coordinate)**
-Let $\vec{b} \in \text{Coord}$ be a bias vector.
-Define the bias-augmented output coordinate as:
+Let $\vec{b} \in \text{Coord}$ be a bias vector. Define the bias-augmented output coordinate as:
 
 $$
 \text{OutCoord}(A_{\text{alg}}, \vec{b}) := (\Psi(Q_{\text{alg}}) + \vec{b}) \pmod L,
@@ -235,8 +233,7 @@ where $A_{\text{alg}} = (P_{\text{alg}}, Q_{\text{alg}})$.
 * **Channel B (control):** $\vec{b}$ is a linear translation in $\text{Coord}$, providing stable and predictable micro-adjustments.
 
 **Definition 5.5 (Bias Commitment and ProofBundle)**
-Let the bias field over tensor coordinates be $\{\vec{b}(\vec{v})\}_{\vec{v} \in T}$, committed via an axis-independent space construction (e.g., a bias tensor folded by $\otimes_{\text{space}}$, or a Merkle commitment).
-Denote the commitment root as $\text{GlobalRoot}_{\text{bias}}$.
+Let the bias field over tensor coordinates be $\{\vec{b}(\vec{v})\}_{\vec{v} \in T}$, committed via an axis-independent space construction (e.g., a bias tensor folded by $\otimes_{\text{space}}$, or a Merkle commitment). Denote the commitment root as $\text{GlobalRoot}_{\text{bias}}$.
 
 Define a composite root that binds algebra, bias, and context:
 
@@ -265,8 +262,7 @@ $$
 T(\vec{b}) := \text{OutCoord}(A_{\text{alg}}, \vec{b})
 $$
 
-is an isometry on $(\text{Coord}, d)$.
-In particular, for any $\delta \in \text{Coord}$:
+is an isometry on $(\text{Coord}, d)$. In particular, for any $\delta \in \text{Coord}$:
 
 $$
 d(T(\vec{b} + \delta), T(\vec{b})) = d(\delta, \vec{0}).
@@ -279,13 +275,13 @@ T(\vec{b} + \delta) - T(\vec{b}) = (\Psi(Q_{\text{alg}}) + \vec{b} + \delta) - (
 $$
 
 Component-wise, translation does not change circular differences, hence distances are preserved by definition of $d_L$.
+
 **Q.E.D.**
 
 ### 5.3 Theorem: Exact Controllability in Coordinate Space
 
 **Theorem 5.7 (Surjectivity / Exact Control by $\vec{b}$)**
-Fix $A_{\text{alg}}$ and define $\vec{c} := \Psi(Q_{\text{alg}})$.
-For any target coordinate $\vec{c}^* \in \text{Coord}$, there exists a unique $\vec{b}^* \in \text{Coord}$ such that
+Fix $A_{\text{alg}}$ and define $\vec{c} := \Psi(Q_{\text{alg}})$. For any target coordinate $\vec{c}^* \in \text{Coord}$, there exists a unique $\vec{b}^* \in \text{Coord}$ such that
 
 $$
 \text{OutCoord}(A_{\text{alg}}, \vec{b}^*) = \vec{c}^*,
@@ -305,12 +301,11 @@ $$
 $$
 
 Uniqueness follows because addition in $\text{Coord}$ is a group action by translations, hence bijective.
+
 **Q.E.D.**
 
 **Corollary 5.8 (Finite Convergence Under Discrete LocalShift)**
-Assume LocalShift is restricted to unit moves $\delta \in \{\pm \vec{e}_i\}_{i=1}^d$ (one coordinate changes by $\pm 1 \pmod L$ per step).
-Then from any $\vec{b}$, there exists a deterministic sequence of LocalShift moves reaching $\vec{b}^*$ in exactly $\sum_{i=1}^d d_L(b_i, b^*_{,i})$ steps.
-Therefore, reachability/convergence in the $\vec{b}$-space is guaranteed without any assumption on the continuity of $\Psi$.
+Assume LocalShift is restricted to unit moves $\delta \in \{\pm \vec{e}_i\}_{i=1}^d$ (one coordinate changes by $\pm 1 \pmod L$ per step). Then from any $\vec{b}$, there exists a deterministic sequence of LocalShift moves reaching $\vec{b}^*$ in exactly $\sum_{i=1}^d d_L(b_i, b^*_{,i})$ steps. Therefore, reachability/convergence in the $\vec{b}$-space is guaranteed without any assumption on the continuity of $\Psi$.
 
 ### 5.4 Theorem: Verifiability of Bias-Augmented Outputs
 
@@ -329,9 +324,8 @@ $$
 and the server cannot change $\text{OutCoord}$ (by swapping either $Q_{\text{alg}}$ or $\vec{b}$) without causing at least one verification step to fail.
 
 **Proof (sketch).**
-From (1), $Q_{\text{alg}}$ is bound to $\text{GlobalRoot}_{\text{alg}}$. From (2), $\vec{b}$ is bound to $\text{GlobalRoot}_{\text{bias}}$.
-From (3), both roots are cryptographically bound to the same $\text{ctx}$ and to $\text{GlobalRoot}$, preventing mix-and-match (“splicing”) of a valid $\text{Proof}_{\text{alg}}$ from one context with a valid $\text{Proof}_{\text{bias}}$ from another.
-Since $\text{OutCoord}$ is a deterministic function of the verified pair $(Q_{\text{alg}}, \vec{b})$, any deviation changes the committed data and breaks verification.
+From (1), $Q_{\text{alg}}$ is bound to $\text{GlobalRoot}_{\text{alg}}$. From (2), $\vec{b}$ is bound to $\text{GlobalRoot}_{\text{bias}}$. From (3), both roots are cryptographically bound to the same $\text{ctx}$ and to $\text{GlobalRoot}$, preventing mix-and-match (“splicing”) of a valid $\text{Proof}_{\text{alg}}$ from one context with a valid $\text{Proof}_{\text{bias}}$ from another. Since $\text{OutCoord}$ is a deterministic function of the verified pair $(Q_{\text{alg}}, \vec{b})$, any deviation changes the committed data and breaks verification.
+
 **Q.E.D.**
 
 ### 5.5 Counterexamples and Boundaries (Falsifiability)
@@ -349,10 +343,7 @@ passing both checks while producing an output coordinate inconsistent with eithe
 Thus Theorem 5.9 requires explicit binding.
 
 **Boundary C (Constrained Bias Space Reduces Reachability)**
-If $\vec{b}$ is restricted to a subset (e.g., bounded norm, sparsity, fixed Hamming weight, limited update budget), Theorem 5.7 (exact surjectivity) no longer holds.
-Only reachability within that subset can be claimed, and convergence guarantees must be restated under the constraint model.
+If $\vec{b}$ is restricted to a subset (e.g., bounded norm, sparsity, fixed Hamming weight, limited update budget), Theorem 5.7 (exact surjectivity) no longer holds. Only reachability within that subset can be claimed, and convergence guarantees must be restated under the constraint model.
 
 **Boundary D (Coordinate Verifiability $\neq$ Token Verifiability)**
-Theorem 5.9 guarantees correctness of the verified coordinate $\text{OutCoord}$.
-If token selection uses an unproven heuristic (e.g., approximate KNN) the server may still claim an arbitrary token not consistent with $\text{OutCoord}$.
-Full token-level trust requires a verifiable mapping (e.g., committed vocabulary coordinates plus a verifiable nearest-neighbor proof, or a deterministic decode rule whose steps are provable).
+Theorem 5.9 guarantees correctness of the verified coordinate $\text{OutCoord}$. If token selection uses an unproven heuristic (e.g., approximate KNN) the server may still claim an arbitrary token not consistent with $\text{OutCoord}$. Full token-level trust requires a verifiable mapping (e.g., committed vocabulary coordinates plus a verifiable nearest-neighbor proof, or a deterministic decode rule whose steps are provable).
