@@ -71,7 +71,6 @@ impl EventLog {
         let mut writer = BufWriter::new(file);
         
         // 使用 Bincode 或 JSON 序列化一行
-        // 这里简单模拟追加 Binary
         bincode::serialize_into(&mut writer, entry).map_err(|e| e.to_string())?;
         writer.flush().map_err(|e| e.to_string())?;
         
@@ -79,18 +78,12 @@ impl EventLog {
     }
 }
 
-/// 🧊 HyperTensor (Refactored): 现在是 EventLog 的包装器
-/// 
-/// [Phase 3 Refactor]: 
-/// 不再维护 HashMap<Coordinate, ...>。
-/// 所有的 `insert` 操作都转化为 Log 的 `append`。
+/// 🧊 HyperTensor (Log Wrapper)
 #[derive(Serialize, Deserialize)]
 pub struct HyperTensor {
     pub dimensions: usize,
     pub side_length: usize,
     pub discriminant: Integer,
-    
-    /// [CORE CHANGE]: The Tensor is now a Log
     pub event_log: EventLog,
 }
 
@@ -105,21 +98,29 @@ impl HyperTensor {
         }
     }
 
-    /// 兼容旧 API: map_id_to_coord
-    /// 虽然现在变成了 Log，但为了不破坏 Neuron 的接口签名，我们保留这个方法，
-    /// 但它对于 Log 结构来说已经不关键了。
     pub fn map_id_to_coord(&self, numeric_id: u64) -> Vec<usize> {
-        vec![numeric_id as usize] // Dummy impl or keep old logic if needed for proof structure
+        vec![numeric_id as usize] 
     }
 
-    /// 🖊️ Insert -> Append
-    /// 以前的 key (checkpoint_key) 现在作为 Log 的一部分（如果需要），或者忽略
+    /// 🖊️ Insert -> Append (Security Patched)
     pub fn insert(&mut self, _key: &str, checkpoint: AffineTuple, timestamp: u64) -> Result<(), String> {
-        // 1. Calculate Hash of the Checkpoint
-        // 我们将 AffineTuple 哈希化，作为 Merkle Leaf
+        // 1. Calculate Hash of the Checkpoint (Comprehensive Hashing)
+        // [SECURITY FIX]: 必须对语义状态 Q (ClassGroupElement) 进行完整哈希
+        // 以前只哈希 P (通常为 1) 导致承诺为空。
+        
         let mut hasher = Hasher::new();
+        // [Fix 1]: Domain Separation Tag
+        hasher.update(b"HTP_LOG_ENTRY_V1"); 
+        
+        // [Fix 2]: Hash P-Factor (虽然 Checkpoint 里通常是 1，但必须包含)
         hasher.update(&checkpoint.p_factor.to_digits(rug::integer::Order::Lsf));
-        // 这里应该也 hash q_shift，为了简便略过详细序列化
+
+        // [Fix 3]: Hash Q-Shift Components (Semantic State)
+        // 这是最重要的修复，锁死语义内容。
+        hasher.update(&checkpoint.q_shift.a.to_digits(rug::integer::Order::Lsf));
+        hasher.update(&checkpoint.q_shift.b.to_digits(rug::integer::Order::Lsf));
+        hasher.update(&checkpoint.q_shift.c.to_digits(rug::integer::Order::Lsf));
+        
         let hash = hasher.finalize().into();
 
         // 2. Create Log Entry
@@ -136,30 +137,20 @@ impl HyperTensor {
         Ok(())
     }
 
-    /// 🌳 Global Root -> Merkle Root
-    /// 
-    /// 为了兼容 Neuron 期望返回 AffineTuple 的接口，
-    /// 我们将 Merkle Root (32 bytes) 包装进 AffineTuple 的 P 因子中返回。
-    /// 这是一个临时的桥接方案。
     pub fn calculate_global_root(&self) -> Result<AffineTuple, String> {
         let root_hash = self.event_log.commitment_tree.root();
         
-        // Wrap Hash into Integer
+        // Wrap Hash into Integer for API compatibility
         let root_int = Integer::from_digits(&root_hash, rug::integer::Order::Lsf);
         
-        // Return as Tuple (P=Hash, Q=Identity)
         Ok(AffineTuple {
             p_factor: root_int,
             q_shift: crate::phase3::core::affine::AffineTuple::identity(&self.discriminant).q_shift,
         })
     }
 
-    /// 🛣️ Segment Tree Path -> Merkle Path
-    /// 返回证明路径。
     pub fn get_segment_tree_path(&self, _coord: &Vec<usize>, _axis: usize) -> Vec<AffineTuple> {
-        // 这里应该返回 Merkle Path。
-        // 由于接口限制返回 Vec<AffineTuple>，我们同样需要将 Hash 包装进去。
-        // [TODO]: Implement real Merkle Proof generation in `merkle.rs`
-        vec![AffineTuple::identity(&self.discriminant)] // Placeholder
+        // Placeholder for Merkle Path retrieval
+        vec![AffineTuple::identity(&self.discriminant)] 
     }
 }
