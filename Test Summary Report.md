@@ -73,7 +73,7 @@ $$\| \Phi(g^x) - \Phi(g^{x+\epsilon}) \| < K \cdot \|\epsilon\|$$
 
 ---
 
-## 总结成三条可证明命题：
+## 总结成三条可证明命题：（见THEORY.md证明）
 
 1. **稳定性定理（严格版）**
    在环面距离 $d$ 下，函数 $\vec b \mapsto (\Phi(S^w)+\vec b) \pmod L$ 是等距映射，因此是全局 1-Lipschitz 连续的，而不仅是局部。
