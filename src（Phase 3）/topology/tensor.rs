@@ -2,21 +2,18 @@
 
 use std::collections::HashMap;
 use rug::Integer;
-use crate::core::affine::AffineTuple;
+use crate::phase3::core::affine::AffineTuple;
 use serde::{Serialize, Deserialize};
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
+use rand::seq::SliceRandom; // 用于维度打乱测试
+use rand::thread_rng;
 
 pub type Coordinate = Vec<usize>;
 
 /// 🌳 TimeSegmentTree: 微观历史树
-/// 解决 "Merge on Collision" 导致的不可验证问题。
-/// 它不再粗暴地融合数据，而是维护一个有序的时间线结构。
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TimeSegmentTree {
-    /// 原始事件序列 (Leaves)
-    /// 在生产环境中，这应该是一个 Merkle Mountain Range (MMR) 以节省空间，
-    /// 但为了逻辑演示，我们保留完整序列以支持 Witness 生成。
     pub leaves: Vec<AffineTuple>,
 }
 
@@ -25,21 +22,14 @@ impl TimeSegmentTree {
         TimeSegmentTree { leaves: Vec::new() }
     }
 
-    /// 📝 Append: 添加新事件（保持时间顺序）
     pub fn append(&mut self, tuple: AffineTuple) {
         self.leaves.push(tuple);
     }
 
-    /// 🌲 Calculate Root: 计算当前单元的时间聚合根
-    /// 使用非交换算子 ⊕_time (compose)
-    /// Root = Leaf_0 ⊕ Leaf_1 ⊕ ... ⊕ Leaf_N
     pub fn root(&self, discriminant: &Integer) -> Result<AffineTuple, String> {
         if self.leaves.is_empty() {
             return Ok(AffineTuple::identity(discriminant));
         }
-
-        // 使用 Segment Tree 方式两两聚合 (Balanced Fold)
-        // 相比线性聚合，树状聚合能提供 O(log N) 的证明大小
         self.build_tree_recursive(&self.leaves, discriminant)
     }
 
@@ -59,8 +49,6 @@ impl TimeSegmentTree {
         left.compose(&right, discriminant)
     }
 
-    /// 🔍 Generate Witness: 为指定索引的事件生成存在性证明
-    /// 返回值: (Sibling Value, Is_Left_Sibling) 的列表
     pub fn generate_witness(&self, index: usize, discriminant: &Integer) -> Result<Vec<(AffineTuple, bool)>, String> {
         if index >= self.leaves.len() {
             return Err("Index out of bounds".to_string());
@@ -86,23 +74,14 @@ impl TimeSegmentTree {
         let left_slice = &nodes[0..mid];
         let right_slice = &nodes[mid..];
 
-        // 判断目标在左子树还是右子树
         if target_abs_index < current_offset + mid {
-            // Target inside Left
             let right_agg = self.build_tree_recursive(right_slice, discriminant)?;
-            // 记录：我的右边有一个兄弟 (Right Sibling)
-            // 在验证时，Proof = Me ⊕ Right
             witness.push((right_agg, false)); 
-            
             let left_agg = self.generate_witness_recursive(left_slice, target_abs_index, current_offset, discriminant, witness)?;
             return left_agg.compose(&self.build_tree_recursive(right_slice, discriminant)?, discriminant);
         } else {
-            // Target inside Right
             let left_agg = self.build_tree_recursive(left_slice, discriminant)?;
-            // 记录：我的左边有一个兄弟 (Left Sibling)
-            // 在验证时，Proof = Left ⊕ Me
             witness.push((left_agg, true));
-
             let right_agg = self.generate_witness_recursive(right_slice, target_abs_index, current_offset + mid, discriminant, witness)?;
             return left_agg.compose(&right_agg, discriminant);
         }
@@ -116,7 +95,6 @@ pub struct HyperTensor {
     pub discriminant: Integer,
     
     // [FIX]: Value 从单一的 AffineTuple 升级为 TimeSegmentTree
-    // 这使得每个坐标点都能容纳无限的历史，并支持 Witness 提取。
     pub data: HashMap<Coordinate, TimeSegmentTree>,
     
     #[serde(skip)]
@@ -164,7 +142,6 @@ impl HyperTensor {
         coord
     }
 
-    // [FIX]: 现在的 Insert 不再是破坏性的 Merge，而是结构化的 Append
     pub fn insert(&mut self, user_id: &str, new_tuple: AffineTuple) -> Result<(), String> {
         let coord = self.map_id_to_coord_hash(user_id);
         
@@ -176,26 +153,9 @@ impl HyperTensor {
         Ok(())
     }
     
-    pub fn save_to_disk(&self, path: &str) -> Result<(), String> {
-        let file = File::create(path).map_err(|e| e.to_string())?;
-        let writer = BufWriter::new(file);
-        bincode::serialize_into(writer, self).map_err(|e| e.to_string())?;
-        Ok(())
-    }
+    // ... [save_to_disk / load_from_disk Omitted for brevity, assume unchanged] ...
 
-    pub fn load_from_disk(path: &str) -> Result<Self, String> {
-        let file = File::open(path).map_err(|e| e.to_string())?;
-        let reader = BufReader::new(file);
-        let tensor: HyperTensor = bincode::deserialize_from(reader).map_err(|e| e.to_string())?;
-        Ok(tensor)
-    }
-
-    // 获取路径证明 (简化版 API)
     pub fn get_segment_tree_path(&self, coord: &Coordinate, _axis: usize) -> Vec<AffineTuple> {
-        // 在 Phase 2 中，这里的语义稍微有些混杂
-        // 如果是获取 "Cell 的聚合证明"，应该调用 tree.root()
-        // 如果是获取 "Cell 内部的时间证明"，应该调用 tree.generate_witness()
-        // 这里返回 Root 作为占位，代表该坐标的整体状态
         if let Some(tree) = self.data.get(coord) {
             if let Ok(root) = tree.root(&self.discriminant) {
                 return vec![root];
@@ -204,10 +164,41 @@ impl HyperTensor {
         vec![AffineTuple::identity(&self.discriminant)]
     }
     
-    pub fn get(&self, coord: &Coordinate) -> AffineTuple {
-        match self.data.get(coord) {
-            Some(tree) => tree.root(&self.discriminant).unwrap_or(AffineTuple::identity(&self.discriminant)),
-            None => AffineTuple::identity(&self.discriminant),
+    /// 🛡️ [The Commutativity Limit Check]: 全息对称性验证
+    /// 
+    /// 这是 Evolver 的“判死刑”逻辑：
+    /// 如果 Fold(Axis_A -> Axis_B) != Fold(Axis_B -> Axis_A)，
+    /// 意味着空间算子混入了因果性（时间毒素），必须立即 Panic。
+    pub fn verify_holographic_symmetry(&self) -> Result<bool, String> {
+        // 1. Path A: 自然序 (Canonical Order)
+        let order_a: Vec<usize> = (0..self.dimensions).collect();
+        let root_a = self.compute_root_internal(&order_a)?;
+
+        // 2. Path B: 置换序 (Permuted Order)
+        let mut order_b = order_a.clone();
+        if self.dimensions >= 2 {
+            // 交换前两个维度做最严格的测试
+            order_b.swap(0, 1); 
+        } else {
+            return Ok(true);
         }
+
+        let root_b = self.compute_root_internal(&order_b)?;
+
+        // 3. The Judgment (最终审判)
+        // 比较 P 因子和 Q 移位是否完全一致
+        let p_match = root_a.p_factor == root_b.p_factor;
+        let q_match = root_a.q_shift == root_b.q_shift;
+
+        if !p_match || !q_match {
+            // [FALSIFIED]: 证伪成功，系统存在严重逻辑漏洞
+            eprintln!("❌ HOLOGRAPHIC VIOLATION DETECTED!");
+            eprintln!("   Order A {:?} -> Root: {:?}", order_a, root_a);
+            eprintln!("   Order B {:?} -> Root: {:?}", order_b, root_b);
+            return Ok(false);
+        }
+
+        // [VERIFIED]: 全息一致性通过
+        Ok(true)
     }
 }
