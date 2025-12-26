@@ -41,13 +41,7 @@ impl VocabularyTensor {
         let l = side_length as u64;
         
         // 初始化宇宙：将所有 Token 映射到空间中
-        // [Mapping Strategy]: 
-        // Token 被放置在固定的“家”中 (Static Addressing)。
-        // 模型的任务是演化状态 S，使得 Project(S) 精确指向这个家。
         for tid in 0..vocab_size {
-            // 1. 计算确定性坐标 (Linear Layout)
-            // 这里我们使用简单的线性填充，因为投影函数 Project(S) 是连续的。
-            // 模型可以通过调整权重来"爬升"到任意坐标。
             let mut coord = Vec::with_capacity(dimensions);
             let mut temp = tid as u64;
             for _ in 0..dimensions {
@@ -55,7 +49,7 @@ impl VocabularyTensor {
                 temp /= l;
             }
 
-            // 2. [DCAP Algorithm]: 生成绝对唯一的 Token Prime
+            // [DCAP Algorithm]: 生成绝对唯一的 Token Prime
             let base_token_str = format!("tok_{}", tid);
             let p = Self::generate_unique_prime(&base_token_str, &occupied_primes);
             
@@ -152,7 +146,6 @@ impl InverseDecoder {
         }
 
         // 3. Robust KNN Search (Non-Zero Drift)
-        // 这里的 "Drift" 现在代表真实的代数距离误差。
         if let Some(nearest_coord) = self.find_nearest_neighbor_robust(&predicted_coord) {
             let token_prime = self.vocab_tensor.star_map.get(&nearest_coord).unwrap();
             let tid = self.vocab_tensor.prime_to_id.get(token_prime).unwrap();
@@ -166,40 +159,42 @@ impl InverseDecoder {
 
     /// 🌀 [CORE REWRITE]: Semantic Lattice Projection (代数晶格投影)
     /// 
-    /// [FIXED]: 移除了 Phase 2 的哈希映射。
-    /// 现在我们将 ClassGroupElement 视为高维晶格上的点，
-    /// 通过**模形式分解 (Integer Decomposition)** 将其投影到 Tensor 坐标系。
-    /// 
-    /// 数学意义：
-    /// S.a (Ideal Norm) 的微小变化（加减）会直接映射为 Coordinate 的微小位移。
-    /// 这恢复了 "LocalShift" 训练策略的梯度语义：
-    /// 调整权重 -> S 微变 -> 坐标微变 -> Drift 降低。
-    fn extract_coordinate(&self, tuple: &AffineTuple) -> Coordinate {
+    /// [FIXED]: 实施折叠映射 (The Folded Mapping)
+    /// 解决 "Continuity Trap": 消除 x % L 在边界处的剧烈跳变。
+    /// 这保证了投影函数对输入 `a` 是 Lipschitz 连续的。
+    pub fn extract_coordinate(&self, tuple: &AffineTuple) -> Coordinate {
         let s = &tuple.q_shift; 
         
-        // 使用 'a' 系数 (Norm of the Ideal) 作为主要的投影源。
-        // 在类群中，a 的变化直接反映了理想类的结构变化。
-        // 我们将其按 Tensor 的边长 L 进行进制分解 (Base-L Expansion)。
         let mut val = s.a.clone();
-        
         let mut coord = Vec::new();
-        let l = self.vocab_tensor.side_length as u64;
-        let dim = self.vocab_tensor.dimensions;
         
+        let l = self.vocab_tensor.side_length as u64;
         let l_int = Integer::from(l);
+        let dim = self.vocab_tensor.dimensions;
 
         for _ in 0..dim {
-            // coord[i] = val % L
-            // val = val / L
-            // 这建立了一个连续的覆盖映射 (Covering Map)
             let (q, r) = val.div_rem_ref(&l_int).into();
             
-            // r 是余数，必然 < l，安全转换
-            coord.push(r.to_u32().unwrap_or(0) as usize);
+            let raw_remainder = r.to_u32().unwrap_or(0) as usize;
+            
+            // Logic: 偶数周期正向走，奇数周期反向走 (Zig-Zag)
+            // 0..L -> L..0 -> 0..L ... 保证了 f(x) 是连续函数
+            let mapped_val = if q.is_even() {
+                raw_remainder
+            } else {
+                (self.vocab_tensor.side_length - 1) - raw_remainder
+            };
+            
+            coord.push(mapped_val);
             val = q;
         }
         
         coord
+    }
+    
+    // [HELPER]: 暴露曼哈顿距离计算供外部使用 (Trainer 需要用它做 Lipschitz 检查)
+    pub fn calculate_distance(&self, a: &Coordinate, b: &Coordinate) -> usize {
+        self.manhattan_distance(a, b)
     }
 
     /// 🔎 [Robust] K-D Tree Search
