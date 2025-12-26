@@ -71,6 +71,8 @@ impl VocabularyTensor {
         }
     }
 
+    /// 🛡️ [FALSIFIABILITY BOUNDARY B2]: Vocabulary Space Exhausted
+    /// 确保语义指纹的绝对唯一性。
     fn generate_unique_prime(base_str: &str, occupied: &HashSet<Integer>) -> Integer {
         let mut nonce = 0u64;
         const MAX_COLLISION_RETRIES: u64 = 1_000_000;
@@ -83,13 +85,17 @@ impl VocabularyTensor {
             };
 
             if let Ok(candidate) = hash_to_prime(&input_str, 64) {
+                // 必须保证全局唯一，否则会造成严重的语义混淆
                 if !occupied.contains(&candidate) {
                     return candidate;
                 }
             }
             nonce += 1;
         }
-        panic!("❌ Fatal Error: Vocabulary Space Exhausted.");
+        
+        // [PANIC]: 如果在百万次尝试后仍无法找到唯一素数，说明词表空间相对于哈希算法已饱和。
+        // 为了防止语义冲突，系统必须停止启动。
+        panic!("❌ Fatal Error: Vocabulary Space Exhausted. Unable to assign unique prime fingerprint.");
     }
 
     fn build_kdtree(points: &mut [Coordinate], depth: usize, k: usize) -> Option<Box<KdNode>> {
@@ -134,6 +140,9 @@ impl InverseDecoder {
     }
 
     /// 📍 Decode: S_state -> Coordinate -> Nearest Token
+    /// 
+    /// 🛡️ [FALSIFIABILITY BOUNDARY B1]: Navigation Lost
+    /// 当状态漂移超出 search_radius 时，显式返回错误，判定为“幻觉”。
     pub fn decode(&self, target_root: &AffineTuple) -> Result<DecodeResult, String> {
         // 1. Extract Coordinate via Semantic Projection (Lattice Mapping)
         let predicted_coord = self.extract_coordinate(target_root);
@@ -154,14 +163,14 @@ impl InverseDecoder {
             return Ok(DecodeResult { token_id: *tid, drift });
         }
 
-        Err("❌ Navigation Lost: State drifted too far from semantic manifold.".to_string())
+        // [CRITICAL ERROR]: 导航丢失
+        // 这意味着模型输出的状态在代数空间中极其离谱，甚至找不到任何近似的语义锚点。
+        // 与其像 Transformer 那样强行给出一个概率低的词，HPT 选择直接报错。
+        Err(format!("❌ Navigation Lost: State drifted too far from semantic manifold (No neighbors within radius {}).", self.search_radius))
     }
 
-    /// 🌀 [CORE REWRITE]: Semantic Lattice Projection (代数晶格投影)
-    /// 
-    /// [FIXED]: 实施折叠映射 (The Folded Mapping)
-    /// 解决 "Continuity Trap": 消除 x % L 在边界处的剧烈跳变。
-    /// 这保证了投影函数对输入 `a` 是 Lipschitz 连续的。
+    /// 🌀 Semantic Lattice Projection (代数晶格投影)
+    /// 实施 Lipschitz 连续的折叠映射
     pub fn extract_coordinate(&self, tuple: &AffineTuple) -> Coordinate {
         let s = &tuple.q_shift; 
         
@@ -178,7 +187,6 @@ impl InverseDecoder {
             let raw_remainder = r.to_u32().unwrap_or(0) as usize;
             
             // Logic: 偶数周期正向走，奇数周期反向走 (Zig-Zag)
-            // 0..L -> L..0 -> 0..L ... 保证了 f(x) 是连续函数
             let mapped_val = if q.is_even() {
                 raw_remainder
             } else {
@@ -192,7 +200,7 @@ impl InverseDecoder {
         coord
     }
     
-    // [HELPER]: 暴露曼哈顿距离计算供外部使用 (Trainer 需要用它做 Lipschitz 检查)
+    // [HELPER]: 暴露曼哈顿距离计算
     pub fn calculate_distance(&self, a: &Coordinate, b: &Coordinate) -> usize {
         self.manhattan_distance(a, b)
     }
@@ -206,6 +214,7 @@ impl InverseDecoder {
             self.search_kdtree_recursive(root, target, &mut best_dist, &mut best_coord);
         }
         
+        // [BOUNDARY CHECK]: 严格执行搜索半径限制
         if best_dist > self.search_radius {
             return None;
         }
