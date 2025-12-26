@@ -121,9 +121,9 @@ $$
 **Proof:**
 Let $\mathcal{T}_{ij}$ be the element at $x=i, y=j$.
 
-**LHS:** $\bigotimes_j (\bigotimes_i \mathcal{T}_{ij}) = \prod_{j} \prod_{i} \mathcal{T}_{ij}$ (Product notation for Abelian group op)
+**LHS:** $\bigotimes\_j (\bigotimes\_i \mathcal{T}\_{ij}) = \prod\_{j} \prod\_{i} \mathcal{T}\_{ij}$
 
-**RHS:** $\bigotimes_i (\bigotimes_j \mathcal{T}_{ij}) = \prod_{i} \prod_{j} \mathcal{T}_{ij}$
+**RHS:** $\bigotimes\_i (\bigotimes\_j \mathcal{T}\_{ij}) = \prod\_{i} \prod\_{j} \mathcal{T}\_{ij}$
 
 Since the product is over a finite Abelian group, the order of terms does not matter.
 
@@ -165,7 +165,7 @@ $$
 #### 4.3.2 Engineering Mitigation
 In the HTP engineering implementation, we render the probability of falling into the Kernel Trap negligible through three layers of defense:
 
-1.  **Huge Class Number ($h(\Delta)$):**
+1.  **Huge Class Number ( $h(\Delta)$ ):**
     By enforcing a discriminant size of $\geq 2048$ bits (see `param.rs`), the size of the Class Group is astronomically large ($\approx \sqrt{|\Delta|}$). This makes the probability of randomly encountering an element with a specific small order effectively zero ($< 2^{-100}$).
 
 2.  **Large Semantic Primes ($P$):**
@@ -250,8 +250,8 @@ $$
 $$
 
 where:
-* $\text{Proof}_{\text{alg}}$ proves the claimed $Q_{\text{alg}}$ (or the relevant cell root feeding into it) is consistent with $\text{GlobalRoot}_{\text{alg}}$, using $\oplus_{\text{time}}$ (micro) and $\otimes_{\text{space}}$ (macro) inclusion/aggregation.
-* $\text{Proof}_{\text{bias}}$ proves the bias vector $\vec{b}$ used for output is the committed value under $\text{GlobalRoot}_{\text{bias}}$ for the same $\text{ctx}$.
+* $\text{Proof}\_{\text{alg}}$ proves the claimed $Q\_{\text{alg}}$ (or the relevant cell root feeding into it) is consistent with $\text{GlobalRoot}\_{\text{alg}}$, using $\oplus\_{\text{time}}$ (micro) and $\otimes\_{\text{space}}$ (macro) inclusion/aggregation.
+* $\text{Proof}\_{\text{bias}}$ proves the bias vector $\vec{b}$ used for output is the committed value under $\text{GlobalRoot}\_{\text{bias}}$ for the same $\text{ctx}$.
 
 ### 5.2 Lemma: Stability of the Linear Bias Channel
 
@@ -284,7 +284,7 @@ Component-wise, translation does not change circular differences, hence distance
 Fix $A_{\text{alg}}$ and define $\vec{c} := \Psi(Q_{\text{alg}})$. For any target coordinate $\vec{c}^* \in \text{Coord}$, there exists a unique $\vec{b}^* \in \text{Coord}$ such that
 
 $$
-\text{OutCoord}(A_{\text{alg}}, \vec{b}^*) = \vec{c}^*,
+\text{OutCoord}(A\_{\text{alg}}, \vec{b}^*) = \vec{c}^*,
 $$
 
 namely
