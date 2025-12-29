@@ -71,6 +71,23 @@ impl VocabularyTensor {
         }
     }
 
+
+    /// 🔁 Deterministic Reverse Mapping: Token ID -> Coordinate
+    /// 与 `new()` 中的初始化逻辑保持一致：用 base-`side_length` 展开得到坐标。
+    /// 注意：index 0 是最低位 digit (LSD)。
+    pub fn map_id_to_coord(&self, tid: u64) -> Coordinate {
+        let mut coord = Vec::with_capacity(self.dimensions);
+        let mut temp = tid;
+        let l = self.side_length as u64;
+        for _ in 0..self.dimensions {
+            coord.push((temp % l) as usize);
+            temp /= l;
+        }
+        coord
+    }
+
+
+
     /// 🛡️ [FALSIFIABILITY BOUNDARY B2]: Vocabulary Space Exhausted
     /// 确保语义指纹的绝对唯一性。
     fn generate_unique_prime(base_str: &str, occupied: &HashSet<Integer>) -> Integer {
@@ -85,7 +102,6 @@ impl VocabularyTensor {
             };
 
             if let Ok(candidate) = hash_to_prime(&input_str, 64) {
-                // 必须保证全局唯一，否则会造成严重的语义混淆
                 if !occupied.contains(&candidate) {
                     return candidate;
                 }
@@ -93,8 +109,6 @@ impl VocabularyTensor {
             nonce += 1;
         }
         
-        // [PANIC]: 如果在百万次尝试后仍无法找到唯一素数，说明词表空间相对于哈希算法已饱和。
-        // 为了防止语义冲突，系统必须停止启动。
         panic!("❌ Fatal Error: Vocabulary Space Exhausted. Unable to assign unique prime fingerprint.");
     }
 
@@ -125,6 +139,7 @@ pub struct DecodeResult {
 }
 
 /// 🧭 InverseDecoder: 坐标导航器 (Phase 4 Upgraded)
+/// 集成了 VAPO 所需的超度量观测能力。
 pub struct InverseDecoder {
     pub vocab_tensor: VocabularyTensor,
     /// 动态搜索半径：如果直接找不到，允许在多大范围内搜索
@@ -135,42 +150,84 @@ impl InverseDecoder {
     pub fn new(vocab_size: u32) -> Self {
         InverseDecoder {
             vocab_tensor: VocabularyTensor::new(vocab_size, 4, 32),
-            search_radius: 5, // 默认允许一定的模糊导航
+            search_radius: 5,
         }
     }
 
-    /// 📍 Decode: S_state -> Coordinate -> Nearest Token
-    /// 
-    /// 🛡️ [FALSIFIABILITY BOUNDARY B1]: Navigation Lost
-    /// 当状态漂移超出 search_radius 时，显式返回错误，判定为“幻觉”。
+    /// 📍 Decode (Legacy): 仅用于兼容旧逻辑
     pub fn decode(&self, target_root: &AffineTuple) -> Result<DecodeResult, String> {
-        // 1. Extract Coordinate via Semantic Projection (Lattice Mapping)
-        let predicted_coord = self.extract_coordinate(target_root);
+        self.decode_with_bias(target_root, &vec![0; self.vocab_tensor.dimensions])
+    }
 
-        // 2. Exact Match Check (Zero Drift)
+    /// 🚀 Decode with Bias (The VAPO Interface)
+    /// 将 Bias 纳入观测链，使 fitness 能感知到 Bias 的微调。
+    /// 这是解决 "Fatal Coupling" 的关键步骤：让优化器的动作 (Bias Mutation) 在观测端有响应。
+    pub fn decode_with_bias(&self, target_root: &AffineTuple, bias: &[usize]) -> Result<DecodeResult, String> {
+        // 1. 原始代数投影 (Extract raw algebraic coordinate)
+        let mut predicted_coord = self.extract_coordinate(target_root);
+        
+        // 2. 施加 Bias 校准 (Apply VAPO linear correction)
+        self.apply_bias_to_coord(&mut predicted_coord, bias);
+
+        // 3. 完美的零漂移匹配 (Exact Match)
         if let Some(token_prime) = self.vocab_tensor.star_map.get(&predicted_coord) {
              if let Some(&tid) = self.vocab_tensor.prime_to_id.get(token_prime) {
                  return Ok(DecodeResult { token_id: tid, drift: 0 });
              }
         }
 
-        // 3. Robust KNN Search (Non-Zero Drift)
+        // 4. KNN 鲁棒搜索 (Robust Search)
         if let Some(nearest_coord) = self.find_nearest_neighbor_robust(&predicted_coord) {
             let token_prime = self.vocab_tensor.star_map.get(&nearest_coord).unwrap();
             let tid = self.vocab_tensor.prime_to_id.get(token_prime).unwrap();
-            let drift = self.manhattan_distance(&predicted_coord, &nearest_coord);
             
+            let drift = self.manhattan_distance(&predicted_coord, &nearest_coord);
             return Ok(DecodeResult { token_id: *tid, drift });
         }
 
-        // [CRITICAL ERROR]: 导航丢失
-        // 这意味着模型输出的状态在代数空间中极其离谱，甚至找不到任何近似的语义锚点。
-        // 与其像 Transformer 那样强行给出一个概率低的词，HPT 选择直接报错。
-        Err(format!("❌ Navigation Lost: State drifted too far from semantic manifold (No neighbors within radius {}).", self.search_radius))
+        Err(format!("❌ Navigation Lost: No neighbors within radius {}.", self.search_radius))
+    }
+
+    /// 📏 [Ultrametric CPL]: Coarse-to-Fine Common Prefix Length
+    /// 基于 20-bit (4 dims * 5 bits) 的前缀一致性度量。
+    /// 
+    /// **关键修正**: `extract_coordinate` 生成的是 Little-Endian (index 0 是 LSD)，
+    /// 所以必须用 `.rev()` 从高维（Coarse）向低维（Fine）比较，
+    /// 从而建立正确的层级观测。
+    pub fn ultrametric_cpl_20bits(&self, a: &Coordinate, b: &Coordinate) -> u32 {
+        let mut cpl: u32 = 0;
+
+        // 从最高有效维度 (Coarse) 开始比较
+        for (&da, &db) in a.iter().rev().zip(b.iter().rev()) {
+            let xa = (da as u32) & 0x1F; // 确保只取 5 bits (side_len=32)
+            let xb = (db as u32) & 0x1F;
+
+            if xa == xb {
+                cpl += 5; // 整个维度匹配
+                continue;
+            }
+
+            // 维度内不匹配，计算 5-bit 窗口内的 MSB 前缀
+            let diff = (xa ^ xb) & 0x1F;
+            // 计算前导零，需减去无效的高位 (32 - 5 = 27)
+            let lz = diff.leading_zeros().saturating_sub(27);
+            cpl += lz.min(5);
+            break; // 超度量特性：一旦高位不同，低位再像也没意义
+        }
+
+        cpl
+    }
+
+    /// 🔧 Apply Bias: 简单的模加性平移
+    fn apply_bias_to_coord(&self, coord: &mut Coordinate, bias: &[usize]) {
+        let l = self.vocab_tensor.side_length;
+        // Bias 向量长度可能与坐标维度不同，取交集
+        for (i, b) in bias.iter().enumerate().take(coord.len()) {
+            coord[i] = (coord[i] + (b % l)) % l;
+        }
     }
 
     /// 🌀 Semantic Lattice Projection (代数晶格投影)
-    /// 实施 Lipschitz 连续的折叠映射
     pub fn extract_coordinate(&self, tuple: &AffineTuple) -> Coordinate {
         let s = &tuple.q_shift; 
         
@@ -183,7 +240,6 @@ impl InverseDecoder {
 
         for _ in 0..dim {
             let (q, r) = val.div_rem_ref(&l_int).into();
-            
             let raw_remainder = r.to_u32().unwrap_or(0) as usize;
             
             // Logic: 偶数周期正向走，奇数周期反向走 (Zig-Zag)
@@ -214,7 +270,6 @@ impl InverseDecoder {
             self.search_kdtree_recursive(root, target, &mut best_dist, &mut best_coord);
         }
         
-        // [BOUNDARY CHECK]: 严格执行搜索半径限制
         if best_dist > self.search_radius {
             return None;
         }
