@@ -120,6 +120,7 @@ Based on `THEORY.md`, all state transitions follow a dual-operator architecture:
 
 ## 📜 License
 **M-Patek PROPRIETARY LICENSE**
+
 Copyright © 2025 M-Patek. All Rights Reserved.
 *(See LICENSE file for details - Evaluation Only)*
 
