@@ -1,4 +1,4 @@
-// Proof DSL Parser
+// src/dsl/parser.rs
 // 用于将生成器 (LLM) 输出的 JSON 字符串解析为严格类型的 ProofAction 序列。
 
 use crate::dsl::schema::{ProofAction, ProofSequence};
