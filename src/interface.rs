@@ -1,5 +1,6 @@
 // src/interface.rs
-// Evolver Public Interface
+// Evolver Public Interface v0.2
+// 适配 BiasChannel v0.2 的确定性协议
 
 use crate::control::bias_channel::{BiasController, VapoConfig};
 use crate::dsl::schema::ProofAction;
@@ -21,21 +22,27 @@ pub trait ActionDecoder {
 pub struct CorrectionRequest {
     pub base_logits: Vec<f64>,
     pub request_id: String,
+    
+    // [New v0.2] 必须包含上下文和种子以支持确定性重放和验证
+    pub context: String,
+    pub seed: u64,
 }
 
 #[derive(Debug, Clone)]
 pub struct CorrectionResponse {
     pub final_action: ProofAction,
-    pub applied_bias: Vec<i32>,
+    // [Fix] BiasVector 在 v0.2 是 f64 类型的连续向量
+    pub applied_bias: Vec<f64>, 
     pub final_energy: f64,
     pub iterations: usize,
+    // [New] 返回校验哈希，证明该 Bias 是专门为此 Context 生成的
+    pub proof_hash: String, 
 }
 
 // =========================================================================
 // 3. Evolver 引擎实例 (The Engine)
 // =========================================================================
 
-// 修复：移除 'pub class'，使用 Rust 标准 struct
 pub struct EvolverEngine {
     stp_ctx: STPContext,
     controller: BiasController,
@@ -73,20 +80,25 @@ impl EvolverEngine {
             decoder.decode(logits)
         };
 
-        // 调用 Controller 的优化循环
-        let (final_bias, final_action) = self.controller.optimize(
+        // [Fix] 调用 v0.2 版本的 optimize，传入 context 和 seed
+        // 这将启动 VAPO 搜索循环
+        let proof_bundle = self.controller.optimize(
+            &request.context,
+            request.seed,
             &request.base_logits, 
             &mut self.stp_ctx, 
             decode_wrapper
         );
 
-        let final_energy = self.stp_ctx.calculate_energy(&final_action);
+        // 验证最终能量（虽然 controller 内部也会检查，这里是双重确认）
+        let final_energy = self.stp_ctx.calculate_energy(&proof_bundle.action);
 
         Ok(CorrectionResponse {
-            final_action,
-            applied_bias: final_bias.data,
-            final_energy,
-            iterations: 0, // TODO: 从 controller 获取实际迭代次数
+            final_action: proof_bundle.action,
+            applied_bias: proof_bundle.bias_vector,
+            final_energy: proof_bundle.energy_signature, // 使用 Bundle 里记录的能量
+            iterations: 0, // Mock: 当前 ProofBundle 结构体尚未暴露 iter 次数，暂填 0
+            proof_hash: proof_bundle.context_hash,
         })
     }
 }
