@@ -5,35 +5,47 @@
 
 Evolver is a neuro-symbolic alignment system based on the **Hyper-Tensor Protocol (HTP)** and **Semi-Tensor Product (STP)**. Instead of attempting to train a "perfect" generator, it implements a **Sidecar Controller** that corrects the generator's output in real-time via algebraic constraints, ensuring rigorous logical derivation (**Zero Hallucination**).
 
-## 🏛️ Core Architecture
+⚠️ **Implementation Status: Research Prototype (Alpha)** **PLEASE READ BEFORE USE:** The documentation in `SPECIFICATION.md` and `THEORY.md` describes the Target Theoretical Architecture of the HTP protocol. The current codebase is a Functional Prototype designed to demonstrate the control loop dynamics (VAPO algorithm), not the underlying cryptographic security.
 
+| Feature | Specification (Target) | Current Implementation (Prototype) |
+| :--- | :--- | :--- |
+| **Commitment** | Cryptographic Hash (SHA-256/Poseidon) | `std::collections::hash_map::DefaultHasher` (Non-secure) |
+| **Algebra** | Class Groups of Imaginary Quadratic Fields | Standard Integer/Matrix Arithmetic (Simulated) |
+| **Security** | Fiat-Shamir / ProofBundles / Binding | Logic Verification Only (No anti-forgery mechanisms) |
+| **STP Engine** | Full Semi-Tensor Product State Space | Simplified Logic-Matrix Mapping (`stp_bridge.rs`) |
+
+**Current Focus:** Validation of the "Bias-Control" hypothesis (Theorem 5.7) and the Neuro-Symbolic interaction loop.  
+**Future Work:** Replacing the mock algebra backend with `rust-classgroup` and implementing the full cryptographic accumulator.
+
+---
+
+## 🏛️ Core Architecture
 The current Evolver system consists of three core components, forming a closed loop from "probabilistic guessing" to "algebraic truth":
 
 ### 1. The Generator (Chaotic Core)
-* **Role**: Provides raw cognitive "primitives" (Logits).
-* **Traits**: Retains chaotic weights based on the *Hidden Order Assumption*, ensuring model irreversibility and **Security**.
-* **Status**: Permitted to produce **Hallucinations**; does not require perfect training.
+* **Role:** Provides raw cognitive "primitives" (Logits).
+* **Traits:** Retains chaotic weights based on the Hidden Order Assumption, ensuring model irreversibility and Security.
+* **Status:** Permitted to produce Hallucinations; does not require perfect training.
 
 ### 2. The STP Engine (Constraint Checker)
-* **Code**: `src/dsl/stp_bridge.rs`
-* **Role**: The "Physics Engine" of the logical world.
-* **Principle**: Based on the Algebraic State-Space Theory of **Semi-Tensor Product (STP)**. It maps all logical actions (Define, Apply, Assert) into matrix operations: $x(t+1) = L \ltimes x(t)$.
-* **Function**: Calculates the **Energy ($E$)** of the current generative action.
-    * $E = 0.0$: Logical self-consistency achieved (**QED**).
+* **Code:** `src/dsl/stp_bridge.rs`
+* **Role:** The "Physics Engine" of the logical world.
+* **Principle:** Based on the Algebraic State-Space Theory of Semi-Tensor Product (STP). It maps all logical actions (Define, Apply, Assert) into matrix operations: $x(t+1) = L \ltimes x(t)$.
+* **Function:** Calculates the Energy ($E$) of the current generative action.
+    * $E = 0.0$: Logical self-consistency achieved (QED).
     * $E > 0.0$: Logical violation detected (e.g., "Odd + Odd = Odd").
 
 ### 3. The Bias Controller (Alignment Sidecar)
-* **Code**: `src/control/bias_channel.rs`
-* **Role**: The "Driver" of the system.
-* **Principle**: Based on **Theorem 5.7 (Controllability Theorem)**. While core Logits remain chaotic, the output coordinates can be precisely controlled by superimposing a linear **Bias Vector** ($\vec{b}$).
-* **Algorithm**: **VAPO** (Valuation-Adaptive Perturbation Optimization).
+* **Code:** `src/control/bias_channel.rs`
+* **Role:** The "Driver" of the system.
+* **Principle:** Based on Theorem 5.7 (Controllability Theorem). While core Logits remain chaotic, the output coordinates can be precisely controlled by superimposing a linear Bias Vector ($\vec{b}$).
+* **Algorithm:** VAPO (Valuation-Adaptive Perturbation Optimization).
     * Performs gradient-free search within the discrete STP constraint space.
     * Dynamically adjusts perturbation magnitude (Low-valuation vs. High-valuation bits) to minimize STP energy.
 
 ---
 
 ## 🛠️ Implementation & Tech Stack
-
 Built on **Rust**, emphasizing type safety and zero-cost abstractions.
 
 ### DSL: Proof Action Definition (`src/dsl/schema.rs`)
@@ -51,22 +63,21 @@ pub enum ProofAction {
 
 ### VAPO Optimization Loop (`src/control/bias_channel.rs`)
 The heart of the system. When the Generator produces an erroneous intent, VAPO intervenes:
-1.  **Detect**: STP Engine calculates high energy ($E > 0$).
-2.  **Perturb**: VAPO generates a bias perturbation based on energy magnitude: $\vec{b}_{new} = \vec{b}_{old} + \Delta$.
-3.  **Project**: Projects the Bias into Logit space: $L_{final} = L_{raw} + W_{proj} \cdot \vec{b}$.
-4.  **Decode**: Decodes the new action $A'$.
-5.  **Verify**: Recalculates energy. Loops until $E \approx 0$.
+1.  **Detect:** STP Engine calculates high energy ($E > 0$).
+2.  **Perturb:** VAPO generates a bias perturbation based on energy magnitude: $\vec{b}_{new} = \vec{b}_{old} + \Delta$.
+3.  **Project:** Projects the Bias into Logit space: $L_{final} = L_{raw} + W_{proj} \cdot \vec{b}$.
+4.  **Decode:** Decodes the new action $A'$.
+5.  **Verify:** Recalculates energy. Loops until $E \approx 0$.
 
 ---
 
 ## 🚀 Quick Start
-
 ### Dependencies
 * Rust (1.70+)
 * `serde`, `rand`, `num-integer`
 
 ### Run Demo
-The main program (`src/main.rs`) simulates a classic mathematical proof: *"Prove that the sum of two odd numbers is even."*
+The main program (`src/main.rs`) simulates a classic mathematical proof: "Prove that the sum of two odd numbers is even."
 
 ```bash
 cargo run
@@ -75,7 +86,7 @@ cargo run
 ### Expected Output
 The system demonstrates the Generator "erring" and the Bias Controller "correcting" it:
 
-```plaintext
+```text
 🐱 New Evolver System Initializing...
 --------------------------------------------------
 [Init] STP Context loaded with theorems: ModAdd, Equals...
@@ -102,26 +113,22 @@ The system demonstrates the Generator "erring" and the Bias Controller "correcti
 ---
 
 ## ⚖️ Theoretical Foundation
-
 ### Security vs. Trainability
 We resolve a core paradox:
-* **Security** relies on the chaotic nature of algebraic structures (Non-commutative Evolution).
-* **Trainability** relies on the smoothness of mapping (Lipschitz Continuity).
+* Security relies on the chaotic nature of algebraic structures (Non-commutative Evolution).
+* Trainability relies on the smoothness of mapping (Lipschitz Continuity).
 
-**Solution: "The Engineering Cheat"**
-We preserve the chaotic core of $Cl(\Delta)$ but introduce a **Linear Bias Channel** at the output layer. See `Security vs. Trainability.md` for a detailed breakdown.
+**Solution: "The Engineering Cheat"** We preserve the chaotic core of $Cl(\Delta)$ but introduce a Linear Bias Channel at the output layer. See `Security vs. Trainability.md` for a detailed breakdown.
 
 ### HTP Protocol
 Based on `THEORY.md`, all state transitions follow a dual-operator architecture:
-* **Time Operator ($\oplus$)**: Non-commutative (History Sensitive).
-* **Space Operator ($\otimes$)**: Commutative (Holographic Aggregation).
+* **Time Operator ($\oplus$):** Non-commutative (History Sensitive).
+* **Space Operator ($\otimes$):** Commutative (Holographic Aggregation).
 
 ---
 
 ## 📜 License
-**M-Patek PROPRIETARY LICENSE**
+**M-Patek PROPRIETARY LICENSE** Copyright © 2025 M-Patek. All Rights Reserved.  
+(See LICENSE file for details - Evaluation Only)
 
-Copyright © 2025 M-Patek. All Rights Reserved.
-*(See LICENSE file for details - Evaluation Only)*
-
-"Rebuilding Intelligence, One Bias Vector at a Time." 🐾
+*"Rebuilding Intelligence, One Bias Vector at a Time."* 🐾
