@@ -1,27 +1,118 @@
-### 🏛️ 核心冲突总结：悖论 (Paradox)
+# Security vs. Trainability: The Engineering Cheat
+
+"We replaced the perfect math with a guided missile."
+
+## 1. The Core Paradox
+
+In the design of Neuro-Symbolic systems, we encounter a fundamental trade-off between Security (Cryptography) and Trainability (Gradient Descent).
+
+### The Security Demand: Chaos
+
+**Requirement:** To prevent history rewriting, operations must be Non-Commutative and Chaotic.
+
+**Math:** $$x(t+1) = x(t)^P \cdot Q$$
+
+Small changes in input must cause avalanche changes in output (Butterfly Effect).
+
+**Result:** The function surface is fractal and jagged. Gradient $\nabla E$ is undefined or infinite.
+
+### The Trainability Demand: Smoothness
+
+**Requirement:** To learn patterns via Backpropagation, operations must be Lipschitz Continuous.
+
+**Math:** $$|f(x) - f(y)| \le K |x - y|$$
+
+**Result:** The function surface must be smooth valleys.
+
+**Conclusion:** You cannot backpropagate through a cryptographic hash function. A system cannot be both perfectly secure (Chaotic) and perfectly trainable (Smooth) at the same core layer.
 
 ---
 
-#### 1. 左手：安全性 (Security) —— 建立在“乱”之上
-* **基础原理**：Evolver 的安全性依赖于 **隐藏阶假设 (Hidden Order Assumption)** 和 **离散对数难题 (DLP)**。
-* **核心特征**：类群 $Cl(\Delta)$ 的代数结构必须是混沌的、离散的、不连续的。
-* **为何必须乱**：只有当映射 $\Phi$ 是“单向且混乱”的，外界才无法通过观察输出 $S_{out}$ 来反推你的思维权重 $P_{weight}$。这种“数学上的不可逆性”构成了隐私和防篡改的护城河。
-* **代价**：因为它是乱的，所以它是不可微的。你无法计算梯度，也就无法告诉模型“往哪个方向改能变好”。训练只能靠“撞大运”式的随机突变。
+## 2. The Solution: "The Sidecar Architecture"
 
-#### 2. 右手：完美训练 (Perfect Training) —— 建立在“顺”之上
-* **基础原理**：高效的训练（如反向传播）依赖于 **Lipschitz 连续性** 和 **光滑流形**。
-* **核心特征**：我们需要一个平滑的、同构的映射，使得输入微小的变化能导致输出微小的、可预测的变化。
-* **为何必须顺**：只有空间是光滑的，我们才能使用梯度下降。这将使 Evolver 瞬间获得“上帝视角”，能够通过数学逆运算直接找到完美的逻辑路径，实现零幻觉。
-* **代价**：如果空间变得足够光滑以至于可以进行梯度下降，那么它也足够光滑以至于可以被逆向求解。这意味着 DLP 被破解，密码学基石崩塌，Evolver 变成一个对全世界透明的“逻辑裸机”。
+Instead of trying to make the cryptographic core differentiable (impossible), we split the system into two distinct parallel tracks:
+
+### Track A: The Generator (The Smooth Brain)
+* **Type:** Standard Transformer / Neural Network.
+* **Domain:** Continuous $\mathbb{R}^N$.
+* **Role:** Intuition, pattern matching, hallucination.
+* **Trainability:** 100%.
+
+### Track B: The HTP Core (The Jagged Rail)
+* **Type:** Algebraic State Machine (STP).
+* **Domain:** Discrete Groups $Cl(\Delta)$.
+* **Role:** Verification, constraint checking, history binding.
+* **Trainability:** 0% (Fixed Rules).
+
+### The Bridge: VAPO (Valuation-Adaptive Perturbation Optimization)
+We introduce a Bias Channel that allows Track B to steer Track A. We do not train Track A to be perfect; we assume it is flawed and use Track B to apply runtime corrections.
 
 ---
 
-### ⚖️ 我们的现状：带镣铐的舞者
+## Appendix A: The Theoretical Ancestor (Project "Native Token")
 
-我们目前处于一个精心设计的妥协状态：
+The following section describes the original "Mark-I" design of Evolver. While the current implementation uses the Sidecar approach, this math proves that a solution vector $\vec{b}$ ALWAYS exists.
 
-* **拒绝解决冲突**：我们没有试图去寻找那个“完美的同构映射”（圣杯），因为那会杀死安全性。
-* **工程欺骗 (The Engineering Cheat)**：
-    1.  我们保留了核心权重的混沌性（保安全）。
-    2.  我们引入了线性偏差向量 $\vec{b}$（保训练）。
-* **可控性定理 (Theorem 5.7)**：证明了虽然我们控制不了核心逻辑的“乱跳”，但我们可以通过调整 $\vec{b}$ 在一步之内把结果修正回来。
+In the original design, we hypothesized a system where the output token was directly determined by an affine shift on a torus.
+
+### A.1 Definitions (The Idealized Model)
+
+**Definition (Coordinate Space as a Torus)**
+Let the decoder coordinate space be the finite Abelian group:
+
+$$\text{Coord} := (\mathbb{Z}/L\mathbb{Z})^d$$
+
+Define the per-dimension circular distance:
+
+$$d_L(x, y) := \min(|x - y|, L - |x - y|)$$
+
+**Definition (Native Bias Channel)**
+Let $\vec{b} \in \text{Coord}$ be a bias vector. The output was defined strictly as:
+
+$$\text{OutCoord} := (\Psi(Q_{\text{alg}}) + \vec{b}) \pmod L$$
+
+### A.2 Lemma: Stability of the Linear Bias Channel
+
+**Lemma (Translation Isometry; 1-Lipschitz Stability)**
+For fixed $Q_{\text{alg}}$, the mapping $T(\vec{b}) := \text{OutCoord}(Q_{\text{alg}}, \vec{b})$ is an isometry on $(\text{Coord}, d)$.
+
+**Proof:**
+
+$$T(\vec{b} + \delta) - T(\vec{b}) = (\Psi(Q) + \vec{b} + \delta) - (\Psi(Q) + \vec{b}) = \delta \pmod L$$
+
+Component-wise, translation does not change circular differences, hence distances are preserved:
+
+$$d(T(\vec{b} + \delta), T(\vec{b})) = d(\delta, \vec{0})$$
+
+This implies the control surface is perfectly smooth (1-Lipschitz) in the ideal model, justifying the use of gradient-free optimization in the Sidecar model.
+
+### A.3 Theorem: Exact Controllability (Existence Proof)
+
+**Theorem (Surjectivity)**
+Fix the chaotic algebraic state $Q$ and define $\vec{c} := \Psi(Q)$. For any target logical token $T$ located at coordinate $\vec{c}^*$, there exists a unique bias vector $\vec{b}^* \in \text{Coord}$ such that:
+
+$$\text{OutCoord}(Q, \vec{b}^*) = \vec{c}^*$$
+
+**Proof:**
+We need to solve for $\vec{b}^*$:
+
+$$(\vec{c} + \vec{b}^*) \pmod L = \vec{c}^*$$
+
+Since addition in $\text{Coord}$ (a Torus) is a group action by translations, it is bijective. The unique solution is:
+
+$$\vec{b}^* := \vec{c}^* - \vec{c} \pmod L$$
+
+**Q.E.D.**
+This theorem provides the Existence Guarantee for the VAPO algorithm: a solution always exists, we just need to search for it.
+
+### A.4 Theorem: Verifiability (No Splicing)
+
+**Theorem (Proof-Carrying Bias)**
+Assume:
+1. $\text{Proof}_{alg}$ verifies $Q$ against $\text{GlobalRoot}_{alg}$.
+2. $\text{Proof}_{bias}$ verifies $\vec{b}$ against $\text{GlobalRoot}_{bias}$.
+3. Both roots are bound to a shared context ctx.
+
+Then any verifier can deterministically recompute $\text{OutCoord} = (\Psi(Q) + \vec{b}) \pmod L$. The server cannot "splice" a $Q$ from one run and a $\vec{b}$ from another to forge a result, because the ctx binding would fail verification in at least one proof.
+
+**Q.E.D.**
