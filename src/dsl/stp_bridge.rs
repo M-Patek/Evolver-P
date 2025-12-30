@@ -5,6 +5,7 @@ use crate::crypto::algebra::Matrix;
 
 /// STP 上下文环境
 /// 负责维护当前的代数状态，并将高层的 ProofAction 编译为底层的矩阵算子。
+#[derive(Debug, Clone)]
 pub struct STPContext {
     // 状态矩阵：代表当前系统的全局状态 x(t)
     pub state_matrix: Matrix,
@@ -27,25 +28,21 @@ impl STPContext {
     }
 
     /// 核心接口：计算给定动作的能量
-    /// 注意：这里必须是 &mut self，因为计算过程可能会更新内部缓存或临时状态
+    /// 修复：必须是 &mut self，因为需要更新内部状态
     pub fn calculate_energy(&mut self, action: &ProofAction) -> f64 {
-        // 1. 预演动作 (Dry Run)
-        // 将 Action 转换为对状态的预期影响
         let energy = match action {
             ProofAction::Define { symbol, hierarchy_path } => {
-                // 定义动作：通常总是合法的，除非重定义冲突
-                // 在这个 Mock 实现中，我们简单地注册变量
+                // 定义动作：注册变量到符号表
                 let val = self.mock_valuation_from_path(hierarchy_path);
                 self.variables.insert(symbol.clone(), val);
                 0.0
             },
             
             ProofAction::Apply { theorem_id, inputs, output_symbol } => {
-                // 推导动作：检查 inputs 结合 theorem 是否能推导出 output_symbol
+                // 推导动作：检查逻辑一致性
                 self.check_inference_consistency(theorem_id, inputs, output_symbol)
             },
 
-            // 其他动作暂时返回 0 (Pass)
             _ => 0.0,
         };
 
@@ -55,36 +52,38 @@ impl STPContext {
 
     // --- 内部辅助逻辑 ---
 
-    /// 模拟：根据路径生成一个代数值
     fn mock_valuation_from_path(&self, path: &[String]) -> Matrix {
         // 简单 Mock：如果是 "Odd" 返回 [1, 0], "Even" 返回 [0, 1]
-        if path.contains(&"Odd".to_string()) {
+        // 这里只是为了演示，实际应解析完整路径
+        if path.iter().any(|s| s == "Odd") {
             Matrix::new(vec![vec![1.0], vec![0.0]]) // Vector [1, 0]
         } else {
             Matrix::new(vec![vec![0.0], vec![1.0]]) // Vector [0, 1]
         }
     }
 
-    /// 检查推导一致性 (Energy Function)
     fn check_inference_consistency(&self, theorem: &str, inputs: &[String], output_sym: &str) -> f64 {
         if theorem == "ModAdd" && inputs.len() == 2 {
             let val_a = self.variables.get(&inputs[0]);
             let val_b = self.variables.get(&inputs[1]);
-            let val_out = self.variables.get(output_sym); // 注意：这里假设 Output 已经被 Generator 尝试定义了
+            // 注意：这里检查的是 output_sym *当前* 的定义是否与推导结果冲突
+            // 如果 output_sym 还没定义，通常意味着 Apply 会生成它（能量为0）
+            // 如果 output_sym 已经定义了（比如 Generator 瞎猜了一个值），我们就检查冲突
+            let val_out = self.variables.get(output_sym);
 
             if let (Some(a), Some(b), Some(out)) = (val_a, val_b, val_out) {
                 // 逻辑：Odd(1,0) + Odd(1,0) should be Even(0,1)
-                // 简单的矩阵加法模拟 STP 乘法逻辑
                 let is_a_odd = a[0][0] > 0.5;
                 let is_b_odd = b[0][0] > 0.5;
                 let is_out_odd = out[0][0] > 0.5;
 
-                let expected_odd = is_a_odd ^ is_b_odd; // XOR: Odd+Odd=Even(False), Odd+Even=Odd(True)
+                // 奇数加法规则：Odd + Odd = Even (False)
+                let expected_odd = is_a_odd ^ is_b_odd; 
                 
                 if is_out_odd == expected_odd {
                     return 0.0; // 符合逻辑
                 } else {
-                    return 10.0; // 逻辑矛盾！能量激增
+                    return 10.0; // 逻辑矛盾！
                 }
             }
         }
