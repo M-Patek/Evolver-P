@@ -5,18 +5,6 @@
 
 Evolver is a neuro-symbolic alignment system based on the **Hyper-Tensor Protocol (HTP)** and **Semi-Tensor Product (STP)**. Instead of attempting to train a "perfect" generator, it implements a **Sidecar Controller** that corrects the generator's output in real-time via algebraic constraints, ensuring rigorous logical derivation (**Zero Hallucination**).
 
-⚠️ **Implementation Status: Research Prototype (Alpha)** **PLEASE READ BEFORE USE:** The documentation in `SPECIFICATION.md` and `THEORY.md` describes the Target Theoretical Architecture of the HTP protocol. The current codebase is a Functional Prototype designed to demonstrate the control loop dynamics (VAPO algorithm), not the underlying cryptographic security.
-
-| Feature | Specification (Target) | Current Implementation (Prototype) |
-| :--- | :--- | :--- |
-| **Commitment** | Cryptographic Hash (SHA-256/Poseidon) | `std::collections::hash_map::DefaultHasher` (Non-secure) |
-| **Algebra** | Class Groups of Imaginary Quadratic Fields | Standard Integer/Matrix Arithmetic (Simulated) |
-| **Security** | Fiat-Shamir / ProofBundles / Binding | Logic Verification Only (No anti-forgery mechanisms) |
-| **STP Engine** | Full Semi-Tensor Product State Space | Simplified Logic-Matrix Mapping (`stp_bridge.rs`) |
-
-**Current Focus:** Validation of the "Bias-Control" hypothesis (Theorem 5.7) and the Neuro-Symbolic interaction loop.  
-**Future Work:** Replacing the mock algebra backend with `rust-classgroup` and implementing the full cryptographic accumulator.
-
 ---
 
 ## 🏛️ Core Architecture
