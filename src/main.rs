@@ -1,8 +1,7 @@
-// src/main.rs
 mod dsl;
 mod control;
-// mod interface; // 如果需要可以启用
-mod crypto; // 需要 crypto 模块支持
+// mod interface;
+mod crypto;
 
 use dsl::schema::{ProofAction};
 use dsl::stp_bridge::STPContext;
@@ -62,15 +61,36 @@ fn main() {
     raw_logits[0] = 5.0;  // Index 0: Define "sum_truth" as Odd (WRONG)
     raw_logits[1] = -2.0; // Index 1: Define "sum_truth" as Even (CORRECT)
 
-    // 注册约束：告诉 STP 我们正在计算 ModAdd(n, m) -> sum_truth
-    // 这使得 calculate_energy 知道去检查 n 和 m 的异或关系
-    stp_ctx.calculate_energy(&ProofAction::Apply {
+    // [逻辑修复] 必须先执行错误的 Definition，将其写入 State，
+    // STP 引擎才能在后续的 Apply 检查中发现 sum_truth 与 ModAdd(n,m) 不一致。
+    
+    // 1. 模拟 Generator 首先“生成”了这个错误的定义
+    let bad_definition = ProofAction::Define { 
+        symbol: "sum_truth".to_string(), 
+        hierarchy_path: vec!["Odd".to_string()] 
+    };
+    stp_ctx.calculate_energy(&bad_definition);
+    println!("   -> Raw Generator intent: Define 'sum_truth' as Odd.");
+
+    // 2. 然后 STP 检查逻辑约束：ModAdd(n, m) -> sum_truth
+    // 此时 Context 里: n=Odd, m=Odd, sum_truth=Odd
+    // 规则: Odd + Odd = Even
+    // 冲突: Even != Odd -> Energy 1.0
+    let check_action = ProofAction::Apply {
         theorem_id: "ModAdd".to_string(),
         inputs: vec!["n".to_string(), "m".to_string()],
         output_symbol: "sum_truth".to_string(),
-    });
+    };
+    
+    let energy = stp_ctx.calculate_energy(&check_action);
 
-    // 定义解码器闭包
+    if energy > 0.0 {
+        println!("   -> STP Check: VIOLATION detected! (Energy: {}, Odd + Odd != Odd)", energy);
+    } else {
+        println!("   -> STP Check: NO VIOLATION (Unexpected!).");
+    }
+
+    // 定义解码器闭包 (供 VAPO 使用)
     let decode_fn = |logits: &[f64]| -> ProofAction {
         let max_idx = logits.iter().enumerate()
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
@@ -78,13 +98,13 @@ fn main() {
             .unwrap();
 
         if max_idx == 0 {
-            // 错误幻觉: 认为 Odd + Odd = Odd
+            // 错误幻觉: 定义结果为 Odd
             ProofAction::Define { 
                 symbol: "sum_truth".to_string(), 
                 hierarchy_path: vec!["Odd".to_string()] 
             }
         } else {
-            // 正确逻辑
+            // 正确逻辑: 定义结果为 Even
             ProofAction::Define { 
                 symbol: "sum_truth".to_string(), 
                 hierarchy_path: vec!["Even".to_string()] 
@@ -92,15 +112,12 @@ fn main() {
         }
     };
 
-    println!("   -> Raw Generator intent: Define 'sum_truth' as Odd.");
-    println!("   -> STP Check: VIOLATION detected! (Odd + Odd != Odd)");
-
     // ------------------------------------------------------------------
     // 3.2 VAPO 介入修正
     // ------------------------------------------------------------------
     println!("\n🛡️  [VAPO] Bias Controller Engaging...");
 
-    // [Fix] 调用 v0.2 optimize，传入 context 和 seed
+    // 调用 optimize，传入 context 和 seed
     let proof = controller.optimize(
         mission_context,
         execution_seed,
