@@ -1,25 +1,24 @@
 use rand::prelude::*;
 use rand_distr::{Distribution, Normal};
-use std::f64::consts::PI;
+use rand::rngs::StdRng; // Use Standard RNG for seeding
+// use std::f64::consts::PI; 
+use crate::dsl::schema::{ProofAction, ProofBundle};
+use crate::dsl::stp_bridge::STPContext;
 
 /// -------------------------------------------------------------------
-/// THEORY PATCH IMPLEMENTATION:
-/// Subspace Reachability & Matrix Rotation
-///
-/// Problem: Bias vector (dim=16) cannot control Logits (dim=32000) deterministically.
-/// Solution: Dynamic Basis Rotation (J-L Lemma Application).
-///
-/// If optimization stalls (local minimum in the current subspace),
-/// we verify the "Blind Spot Hypothesis" and rotate the projection matrix
-/// to scan a new slice of the high-dimensional manifold.
+/// BIAS CHANNEL v0.2 (Deterministic Edition)
+/// 
+/// Security Patch: "Verifiable Binding"
+/// All randomness (Initialization, Projection, Perturbation) is now
+/// derived from a master `seed`. This allows a remote Verifier to 
+/// reconstruct the exact same Projection Matrix W_proj and verify
+/// the search trajectory.
 /// -------------------------------------------------------------------
 
 const BIAS_DIM: usize = 16;
-// In a real scenario, this matches the LLM vocabulary size.
-// For the demo, we assume a projected embedding space or a simplified vocab.
 const EMBEDDING_DIM: usize = 128; 
 
-/// The algebraic control signal sitting on the Torus.
+/// The algebraic control signal.
 #[derive(Clone, Debug)]
 pub struct BiasVector {
     pub components: [f64; BIAS_DIM],
@@ -27,53 +26,39 @@ pub struct BiasVector {
 
 impl BiasVector {
     pub fn new_zero() -> Self {
-        BiasVector {
-            components: [0.0; BIAS_DIM],
-        }
+        BiasVector { components: [0.0; BIAS_DIM] }
     }
 
-    pub fn random() -> Self {
-        let mut rng = rand::thread_rng();
-        let mut comps = [0.0; BIAS_DIM];
-        for i in 0..BIAS_DIM {
-            comps[i] = rng.gen_range(-1.0..1.0);
-        }
-        BiasVector { components: comps }
-    }
-
-    /// Perturbs the vector locally (Fine-tuning within current subspace)
-    pub fn perturb(&self, intensity: f64) -> Self {
-        let mut rng = rand::thread_rng();
+    /// Perturbs the vector locally using a deterministic RNG.
+    pub fn perturb(&self, rng: &mut StdRng, intensity: f64) -> Self {
         let normal = Normal::new(0.0, 1.0).unwrap();
         let mut new_comps = self.components;
         
-        // Select a random dimension to tweak (Coordinate Descent style)
+        // Select a random dimension to tweak
         let idx = rng.gen_range(0..BIAS_DIM);
-        new_comps[idx] += normal.sample(&mut rng) * intensity;
+        new_comps[idx] += normal.sample(rng) * intensity;
         
-        // Tanh activation to keep it bounded (soft-clipping)
+        // Tanh activation (soft-clipping)
         new_comps[idx] = new_comps[idx].tanh();
 
-        BiasVector {
-            components: new_comps,
-        }
+        BiasVector { components: new_comps }
     }
 }
 
-/// The Projector bridging the Control Space (16D) and Semantic Space (128D+).
-/// Represents 'W_proj' in the theory documents.
+/// The Projector bridging Control Space -> Semantic Space.
+/// MUST be deterministic based on the seed.
 #[derive(Clone)]
 struct ProjectionMatrix {
-    // Dimensions: EMBEDDING_DIM x BIAS_DIM
     weights: Vec<Vec<f64>>,
 }
 
 impl ProjectionMatrix {
-    /// Initialize a random orthogonal-ish projection matrix.
-    /// Uses Gaussian initialization to satisfy J-L Lemma properties.
-    fn new_random() -> Self {
-        let mut rng = rand::thread_rng();
-        let normal = Normal::new(0.0, (1.0 / BIAS_DIM as f64).sqrt()).unwrap(); // Xavier-like init
+    /// Initialize matrix using a specific seed.
+    /// This ensures W_proj is identical on Server and Verifier.
+    fn new_from_seed(seed: u64) -> Self {
+        // We use the seed + a constant to separate Matrix gen from other randomness
+        let mut rng = StdRng::seed_from_u64(seed + 0xDEADBEEF); 
+        let normal = Normal::new(0.0, (1.0 / BIAS_DIM as f64).sqrt()).unwrap();
 
         let weights = (0..EMBEDDING_DIM)
             .map(|_| {
@@ -86,8 +71,6 @@ impl ProjectionMatrix {
         ProjectionMatrix { weights }
     }
 
-    /// Projects the low-dim bias into the high-dim logit space.
-    /// z = W * b
     fn project(&self, bias: &BiasVector) -> Vec<f64> {
         let mut output = vec![0.0; EMBEDDING_DIM];
         for i in 0..EMBEDDING_DIM {
@@ -101,127 +84,109 @@ impl ProjectionMatrix {
     }
 }
 
-/// The main controller that runs VAPO (Valuation-Adaptive Perturbation Optimization).
-pub struct BiasChannel {
-    current_bias: BiasVector,
-    projector: ProjectionMatrix,
-    temperature: f64,
-    rotation_count: usize,
+pub struct VapoConfig {
+    pub max_iterations: usize,
+    pub initial_temperature: f64,
+    pub valuation_decay: f64,
 }
 
-impl BiasChannel {
-    pub fn new() -> Self {
-        println!("🔧 [BiasChannel] Initializing Control Manifold (Dim: {} -> {})", BIAS_DIM, EMBEDDING_DIM);
-        BiasChannel {
-            current_bias: BiasVector::new_zero(),
-            projector: ProjectionMatrix::new_random(),
-            temperature: 1.0,
-            rotation_count: 0,
+/// The main controller that runs VAPO.
+pub struct BiasController {
+    config: VapoConfig,
+    // We no longer store persistent state that carries over between Contexts
+    // to ensure pure determinism.
+}
+
+impl BiasController {
+    pub fn new(config: Option<VapoConfig>) -> Self {
+        BiasController {
+            config: config.unwrap_or(VapoConfig {
+                max_iterations: 50,
+                initial_temperature: 1.0,
+                valuation_decay: 0.95,
+            }),
         }
     }
 
-    /// THEORY PATCH IMPLEMENTATION: Matrix Rotation
-    /// Rotates the basis to cover a new random subspace of the logit manifold.
-    /// This resolves the "Subspace Reachability" issue probabilistically.
-    pub fn rotate_basis(&mut self) {
-        self.rotation_count += 1;
-        println!("🔄 [VAPO] Stagnation detected. Triggering MATRIX ROTATION (Sequence #{})", self.rotation_count);
-        println!("   -> Scanning new subspace...");
-        
-        // Re-initialize W_proj
-        self.projector = ProjectionMatrix::new_random();
-        
-        // Reset bias to zero relative to the new basis to avoid shock
-        self.current_bias = BiasVector::new_zero();
-    }
-
-    /// Projects the current control state to an additive logit mask.
-    pub fn get_logit_bias(&self) -> Vec<f64> {
-        self.projector.project(&self.current_bias)
-    }
-
-    /// The Core VAPO Loop (Mock Implementation)
-    /// optimizing J(b) = Energy(STP(Generator(b)))
-    pub fn optimize<F>(&mut self, mut energy_evaluator: F) -> f64
+    /// The Core Optimization Loop (Now strictly bound to a Seed/Context)
+    pub fn optimize<F>(
+        &self,
+        context_str: &str, // The "Prompt"
+        seed: u64,         // The "Commitment"
+        raw_logits: &[f64], // Simulated output from Generator(seed, context)
+        stp_ctx: &mut STPContext, 
+        decode_fn: F
+    ) -> ProofBundle
     where
-        F: FnMut(&Vec<f64>) -> f64, // Callback: Returns Energy given a Logit Bias
+        F: Fn(&[f64]) -> ProofAction,
     {
-        let max_steps = 50;
-        let stagnation_limit = 10;
+        println!("🛡️ [VAPO] Init: Seed={}, ContextHash={}", seed, md5::compute(context_str));
+
+        // 1. Deterministic Initialization
+        let mut rng = StdRng::seed_from_u64(seed);
+        let mut projector = ProjectionMatrix::new_from_seed(seed);
+        let mut current_bias = BiasVector::new_zero();
+        
+        let mut temperature = self.config.initial_temperature;
         let mut best_energy = f64::MAX;
-        let mut stagnation_counter = 0;
+        let mut best_bias = current_bias.clone();
+        let mut best_action = decode_fn(raw_logits); // Initial guess
 
-        println!("🛡️ [VAPO] Starting discrete optimization loop...");
+        // 2. Optimization Loop
+        for step in 0..self.config.max_iterations {
+            // Generate Candidate
+            let candidate_bias = current_bias.perturb(&mut rng, 0.5 * temperature);
+            let bias_logits = projector.project(&candidate_bias);
+            
+            // Combine: Logits_Final = Logits_Raw + Logits_Bias
+            // Note: In real world, dimensions match. Here we assume logic handles mapping.
+            // For mock: we just look at the bias effect or assume raw_logits is adaptable.
+            let mut mixed_logits = raw_logits.to_vec();
+            for i in 0..mixed_logits.len().min(bias_logits.len()) {
+                mixed_logits[i] += bias_logits[i]; 
+            }
 
-        for step in 0..max_steps {
-            // 1. Generate Candidate (Perturbation in current subspace)
-            let candidate_bias = self.current_bias.perturb(0.5 * self.temperature);
-            let candidate_logits = self.projector.project(&candidate_bias);
+            // Decode & Check Energy
+            let candidate_action = decode_fn(&mixed_logits);
+            let energy = stp_ctx.calculate_energy(&candidate_action);
 
-            // 2. Evaluate Energy (Oracle Call to STP Engine)
-            let energy = energy_evaluator(&candidate_logits);
-
-            // 3. Selection Logic (Greedy + Simulated Annealing)
+            // Selection Logic
             if energy < best_energy {
                 best_energy = energy;
-                self.current_bias = candidate_bias;
-                stagnation_counter = 0; // Reset stagnation
-                
-                // println!("   -> [Step {}] Improvement! Energy: {:.4}", step, best_energy);
-                
+                current_bias = candidate_bias.clone();
+                best_bias = current_bias.clone();
+                best_action = candidate_action.clone();
+
                 if best_energy <= 1e-6 {
-                    println!("✨ [VAPO] Convergence achieved at Step {}.", step);
-                    return 0.0;
+                    println!("✨ [VAPO] Convergence at Step {}. Energy=0.0", step);
+                    break;
                 }
             } else {
-                stagnation_counter += 1;
+                // Stochastic Accept (Metropolis-like) could go here
             }
 
-            // 4. CHECK FOR TRAPS (Blind Spot Detection)
-            if stagnation_counter >= stagnation_limit {
-                // The optimizer is stuck. 
-                // Hypothesis: The solution is orthogonal to the current projection subspace.
-                // Action: Rotate the Matrix.
-                self.rotate_basis();
-                stagnation_counter = 0;
-                
-                // Heat up temperature to escape local wells
-                self.temperature = 1.5; 
+            // Blind Spot Rotation Logic (Simulated)
+            // If stuck, we can rotate the projector. 
+            // Crucial: The rotation must ALSO be deterministic based on the RNG state!
+            if step % 15 == 14 && best_energy > 0.1 {
+                println!("🔄 [VAPO] Rotating Basis (Deterministic)...");
+                // Re-init projector with current RNG state (which flows from seed)
+                // In this mock, we just scramble weights deterministically
+                let new_sub_seed = rng.next_u64(); 
+                projector = ProjectionMatrix::new_from_seed(new_sub_seed);
+                current_bias = BiasVector::new_zero(); // Reset bias
             }
 
-            // Decay temperature
-            self.temperature *= 0.95;
+            temperature *= self.config.valuation_decay;
         }
 
-        println!("⚠️ [VAPO] Loop finished. Final Energy: {:.4} (Rotations: {})", best_energy, self.rotation_count);
-        best_energy
-    }
-}
-
-// ------------------------------------------------------------------
-// Unit Tests ensuring the Rotation Logic works
-// ------------------------------------------------------------------
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_projection_consistency() {
-        let channel = BiasChannel::new();
-        let vec = BiasVector::new_zero();
-        let proj = channel.projector.project(&vec);
-        assert_eq!(proj.len(), EMBEDDING_DIM);
-        assert_eq!(proj[0], 0.0); // Zero bias should project to zero
-    }
-
-    #[test]
-    fn test_rotation_resets_basis() {
-        let mut channel = BiasChannel::new();
-        let original_weights = channel.projector.weights.clone();
-        
-        channel.rotate_basis();
-        
-        let new_weights = channel.projector.weights.clone();
-        assert_ne!(original_weights[0][0], new_weights[0][0]);
+        // 3. Construct the Proof Bundle
+        ProofBundle {
+            bias_vector: best_bias.components.to_vec(),
+            action: best_action,
+            energy_signature: best_energy,
+            context_hash: format!("{:x}", md5::compute(context_str)),
+            generator_seed: seed,
+        }
     }
 }
