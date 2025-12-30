@@ -4,13 +4,19 @@
 
 use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
+use rug::Integer; // 引入 rug::Integer 以处理大数
+
 use crate::control::bias_channel::{VapoConfig};
 use crate::interface::{EvolverEngine, ActionDecoder, CorrectionRequest};
 use crate::dsl::schema::ProofAction;
+// 引入 Crypto 模块的核心类型
+use crate::crypto::algebra::ClassGroupElement;
+use crate::crypto::primes::hash_to_prime;
 
 mod dsl;
 mod control;
 mod interface;
+pub mod crypto; // 注册 crypto 模块，使其生效
 
 // =========================================================================
 // Python 适配器：模拟解码器
@@ -47,6 +53,71 @@ impl ActionDecoder for SimpleRustDecoder {
         } else {
              ProofAction::QED
         }
+    }
+}
+
+// =========================================================================
+// Crypto 适配器：HTP 协议原语 (Phase 2 预备)
+// =========================================================================
+// 这里暴露了底层的数学接口，方便 Python 侧验证“类群”和“素数生成”逻辑。
+// 这对应于 HTP 协议中的“时间算子”和“空间算子”基础。
+
+#[pyfunction]
+fn py_hash_to_prime(user_id: String, bit_size: u32) -> PyResult<String> {
+    // 将 Rust 的大整数转换为字符串返回给 Python
+    hash_to_prime(&user_id, bit_size)
+        .map(|i| i.to_string())
+        .map_err(|e| PyValueError::new_err(format!("Prime Gen Error: {}", e)))
+}
+
+/// 封装 ClassGroupElement 供 Python 使用
+/// 注意：我们需要在 Python 对象中保存 discriminant (判别式) 上下文
+#[pyclass]
+struct PyClassGroup {
+    inner: ClassGroupElement,
+    d: Integer, 
+}
+
+#[pymethods]
+impl PyClassGroup {
+    /// 创建一个新的群元素（生成元）
+    /// discriminant_str: 判别式 Δ (大整数的字符串形式)
+    #[new]
+    fn new(discriminant_str: String) -> PyResult<Self> {
+        let d = Integer::from_str_radix(&discriminant_str, 10)
+            .map_err(|e| PyValueError::new_err(format!("Invalid Integer: {}", e)))?;
+        
+        let elem = ClassGroupElement::generator(&d);
+        Ok(PyClassGroup { inner: elem, d })
+    }
+
+    /// 群运算：Compose (a * b)
+    /// 对应 HTP 的“空间算子” (Space Operator)
+    fn compose(&self, other: &PyClassGroup) -> PyResult<PyClassGroup> {
+        if self.d != other.d {
+            return Err(PyValueError::new_err("Discriminant mismatch! Cannot compose elements from different groups."));
+        }
+        let res = self.inner.compose(&other.inner, &self.d)
+            .map_err(|e| PyValueError::new_err(e))?;
+        
+        Ok(PyClassGroup { inner: res, d: self.d.clone() })
+    }
+
+    /// 幂运算：Pow (g^x)
+    /// 对应 HTP 的“时间算子” (Time Operator)
+    fn pow(&self, exp_str: String) -> PyResult<PyClassGroup> {
+        let exp = Integer::from_str_radix(&exp_str, 10)
+            .map_err(|e| PyValueError::new_err(format!("Invalid Exponent: {}", e)))?;
+        
+        let res = self.inner.pow(&exp, &self.d)
+            .map_err(|e| PyValueError::new_err(e))?;
+            
+        Ok(PyClassGroup { inner: res, d: self.d.clone() })
+    }
+
+    /// 导出为字符串 (a, b, c)
+    fn __repr__(&self) -> String {
+        format!("ClassGroup(a={}, b={}, c={})", self.inner.a, self.inner.b, self.inner.c)
     }
 }
 
@@ -111,6 +182,12 @@ impl PyEvolver {
 // =========================================================================
 #[pymodule]
 fn new_evolver(_py: Python, m: &PyModule) -> PyResult<()> {
+    // 导出 Evolver 主引擎
     m.add_class::<PyEvolver>()?;
+    
+    // 导出 Crypto 原语 (新增)
+    m.add_class::<PyClassGroup>()?;
+    m.add_function(wrap_pyfunction!(py_hash_to_prime, m)?)?;
+    
     Ok(())
 }
