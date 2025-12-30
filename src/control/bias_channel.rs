@@ -1,160 +1,227 @@
-use crate::dsl::stp_bridge::{STPContext, EnergyProfile};
 use rand::prelude::*;
+use rand_distr::{Distribution, Normal};
+use std::f64::consts::PI;
 
-/// The Bias Controller Orchestrator (Full Implementation).
-/// 
-/// # Architecture: Neural-Guided VAPO
-/// 
-/// This module implements the "Sidecar" control loop:
-/// 1. **Monitor:** Watches STP Energy $E$.
-/// 2. **Propose:** If $E > 0$, queries the Intuition Engine (Transformer) for a search region.
-/// 3. **Optimize:** Uses Valuation-Adaptive Perturbation Optimization (VAPO) to find $E=0$.
-pub struct BiasController {
-    bias_dim: usize,
+/// -------------------------------------------------------------------
+/// THEORY PATCH IMPLEMENTATION:
+/// Subspace Reachability & Matrix Rotation
+///
+/// Problem: Bias vector (dim=16) cannot control Logits (dim=32000) deterministically.
+/// Solution: Dynamic Basis Rotation (J-L Lemma Application).
+///
+/// If optimization stalls (local minimum in the current subspace),
+/// we verify the "Blind Spot Hypothesis" and rotate the projection matrix
+/// to scan a new slice of the high-dimensional manifold.
+/// -------------------------------------------------------------------
+
+const BIAS_DIM: usize = 16;
+// In a real scenario, this matches the LLM vocabulary size.
+// For the demo, we assume a projected embedding space or a simplified vocab.
+const EMBEDDING_DIM: usize = 128; 
+
+/// The algebraic control signal sitting on the Torus.
+#[derive(Clone, Debug)]
+pub struct BiasVector {
+    pub components: [f64; BIAS_DIM],
+}
+
+impl BiasVector {
+    pub fn new_zero() -> Self {
+        BiasVector {
+            components: [0.0; BIAS_DIM],
+        }
+    }
+
+    pub fn random() -> Self {
+        let mut rng = rand::thread_rng();
+        let mut comps = [0.0; BIAS_DIM];
+        for i in 0..BIAS_DIM {
+            comps[i] = rng.gen_range(-1.0..1.0);
+        }
+        BiasVector { components: comps }
+    }
+
+    /// Perturbs the vector locally (Fine-tuning within current subspace)
+    pub fn perturb(&self, intensity: f64) -> Self {
+        let mut rng = rand::thread_rng();
+        let normal = Normal::new(0.0, 1.0).unwrap();
+        let mut new_comps = self.components;
+        
+        // Select a random dimension to tweak (Coordinate Descent style)
+        let idx = rng.gen_range(0..BIAS_DIM);
+        new_comps[idx] += normal.sample(&mut rng) * intensity;
+        
+        // Tanh activation to keep it bounded (soft-clipping)
+        new_comps[idx] = new_comps[idx].tanh();
+
+        BiasVector {
+            components: new_comps,
+        }
+    }
+}
+
+/// The Projector bridging the Control Space (16D) and Semantic Space (128D+).
+/// Represents 'W_proj' in the theory documents.
+#[derive(Clone)]
+struct ProjectionMatrix {
+    // Dimensions: EMBEDDING_DIM x BIAS_DIM
+    weights: Vec<Vec<f64>>,
+}
+
+impl ProjectionMatrix {
+    /// Initialize a random orthogonal-ish projection matrix.
+    /// Uses Gaussian initialization to satisfy J-L Lemma properties.
+    fn new_random() -> Self {
+        let mut rng = rand::thread_rng();
+        let normal = Normal::new(0.0, (1.0 / BIAS_DIM as f64).sqrt()).unwrap(); // Xavier-like init
+
+        let weights = (0..EMBEDDING_DIM)
+            .map(|_| {
+                (0..BIAS_DIM)
+                    .map(|_| normal.sample(&mut rng))
+                    .collect()
+            })
+            .collect();
+
+        ProjectionMatrix { weights }
+    }
+
+    /// Projects the low-dim bias into the high-dim logit space.
+    /// z = W * b
+    fn project(&self, bias: &BiasVector) -> Vec<f64> {
+        let mut output = vec![0.0; EMBEDDING_DIM];
+        for i in 0..EMBEDDING_DIM {
+            let mut sum = 0.0;
+            for j in 0..BIAS_DIM {
+                sum += self.weights[i][j] * bias.components[j];
+            }
+            output[i] = sum;
+        }
+        output
+    }
+}
+
+/// The main controller that runs VAPO (Valuation-Adaptive Perturbation Optimization).
+pub struct BiasChannel {
+    current_bias: BiasVector,
+    projector: ProjectionMatrix,
     temperature: f64,
-    // In production, this would hold the ONNX runtime or Torch bridge
-    // intuition_engine: Option<TransformerModel>, 
+    rotation_count: usize,
 }
 
-/// Represents the output of the Intuition Engine
-pub struct BiasProposal {
-    pub vector: Vec<f64>,
-    pub confidence: f64,
-}
-
-impl BiasController {
-    pub fn new(dim: usize) -> Self {
-        println!("[Init] VAPO Controller ready (Bias Dim: {}, Mode: Neural-Guided)", dim);
-        Self {
-            bias_dim: dim,
-            temperature: 0.5, // Low temp for stricter logic initially
+impl BiasChannel {
+    pub fn new() -> Self {
+        println!("🔧 [BiasChannel] Initializing Control Manifold (Dim: {} -> {})", BIAS_DIM, EMBEDDING_DIM);
+        BiasChannel {
+            current_bias: BiasVector::new_zero(),
+            projector: ProjectionMatrix::new_random(),
+            temperature: 1.0,
+            rotation_count: 0,
         }
     }
 
-    /// Step 1: The Intuition Layer
-    /// Returns a "Rough Guess" of the bias vector based on context.
-    /// This replaces the random initialization of the search.
-    fn query_intuition_engine(&self, _energy_profile: &EnergyProfile) -> BiasProposal {
-        // MOCK: In a real system, this runs a forward pass of a lightweight Transformer.
-        // It predicts which dimensions of the bias vector are most likely to fix the error.
-        let mut rng = rand::thread_rng();
-        let mut suggested_vec = vec![0.0; self.bias_dim];
+    /// THEORY PATCH IMPLEMENTATION: Matrix Rotation
+    /// Rotates the basis to cover a new random subspace of the logit manifold.
+    /// This resolves the "Subspace Reachability" issue probabilistically.
+    pub fn rotate_basis(&mut self) {
+        self.rotation_count += 1;
+        println!("🔄 [VAPO] Stagnation detected. Triggering MATRIX ROTATION (Sequence #{})", self.rotation_count);
+        println!("   -> Scanning new subspace...");
         
-        // Simulating the network "learning" that dimension 2 is critical for this context
-        if rng.gen_bool(0.6) {
-            suggested_vec[2] = 1.5; // Strong push on dim 2
-        }
-
-        BiasProposal {
-            vector: suggested_vec,
-            confidence: 0.85,
-        }
+        // Re-initialize W_proj
+        self.projector = ProjectionMatrix::new_random();
+        
+        // Reset bias to zero relative to the new basis to avoid shock
+        self.current_bias = BiasVector::new_zero();
     }
 
-    /// Helper: Project Bias onto Logits (The "Engineering Cheat")
-    /// $L_{final} = L_{raw} + \text{Scale} \cdot \vec{b}$
-    /// In a real system, this might involve a projection matrix $W_{proj}$.
-    fn apply_bias(&self, bias: &[f64]) -> Vec<f64> {
-        // For prototype: Identity projection (1-to-1 mapping)
-        // We assume the bias vector directly influences the top-level logits
-        bias.iter().map(|&x| x * 2.0).collect()
+    /// Projects the current control state to an additive logit mask.
+    pub fn get_logit_bias(&self) -> Vec<f64> {
+        self.projector.project(&self.current_bias)
     }
 
-    /// Step 2: The Optimization Layer (VAPO)
-    /// Performs a discrete local search (Metropolis-Hastings) starting from the Proposal.
-    pub fn optimize_bias(
-        &self, 
-        ctx: &STPContext, 
-        _current_action: &str, // Context for logging
-        initial_energy: f64
-    ) -> Option<Vec<f64>> {
-        
-        // A. Guard Clause: If logic is already sound, do nothing.
-        if initial_energy < 0.001 {
-            return None; 
-        }
+    /// The Core VAPO Loop (Mock Implementation)
+    /// optimizing J(b) = Energy(STP(Generator(b)))
+    pub fn optimize<F>(&mut self, mut energy_evaluator: F) -> f64
+    where
+        F: FnMut(&Vec<f64>) -> f64, // Callback: Returns Energy given a Logit Bias
+    {
+        let max_steps = 50;
+        let stagnation_limit = 10;
+        let mut best_energy = f64::MAX;
+        let mut stagnation_counter = 0;
 
-        println!("🛡️  [VAPO] Violation (E={:.4}). Engaging Neural-Guided Search...", initial_energy);
+        println!("🛡️ [VAPO] Starting discrete optimization loop...");
 
-        // B. Get Proposal from Intuition Engine
-        let proposal = self.query_intuition_engine(&EnergyProfile { /* mock */ });
-        println!("🧠 [Intuition] Proposed search region (Conf: {:.2})", proposal.confidence);
+        for step in 0..max_steps {
+            // 1. Generate Candidate (Perturbation in current subspace)
+            let candidate_bias = self.current_bias.perturb(0.5 * self.temperature);
+            let candidate_logits = self.projector.project(&candidate_bias);
 
-        // C. Initialize Search State
-        let mut current_bias = proposal.vector.clone();
-        let mut best_bias = current_bias.clone();
-        
-        // We need to verify the *proposal's* actual energy first.
-        // In a real impl, we'd decode the action here. For now, we simulate the check.
-        let mut current_energy = self.mock_verify_energy(ctx, &current_bias, initial_energy);
-        let mut best_energy = current_energy;
+            // 2. Evaluate Energy (Oracle Call to STP Engine)
+            let energy = energy_evaluator(&candidate_logits);
 
-        if best_energy < 0.001 {
-            println!("⚡ [Intuition] Direct Hit! Transformer proposed a valid solution immediately.");
-            return Some(best_bias);
-        }
-
-        // D. Metropolis-Hastings Search Loop
-        let max_steps = 20;
-        let mut rng = rand::thread_rng();
-
-        for i in 0..max_steps {
-            // 1. Perturb: Generate candidate b' from Neighborhood(b)
-            let mut candidate_bias = current_bias.clone();
-            let change_idx = rng.gen_range(0..self.bias_dim);
-            // Discrete perturbation steps (e.g., +1, -1) typical for integer lattices
-            let delta = if rng.gen_bool(0.5) { 1.0 } else { -1.0 }; 
-            candidate_bias[change_idx] += delta;
-
-            // 2. Evaluate: E(b')
-            // In real code: Logits' = Logits + b'; Action' = Argmax(Logits'); E = STP(Action')
-            let candidate_energy = self.mock_verify_energy(ctx, &candidate_bias, initial_energy);
-
-            // 3. Accept/Reject (Metropolis Criterion)
-            // We accept if energy improves OR with probability exp(-DeltaE / T)
-            let energy_diff = candidate_energy - current_energy;
-            let acceptance_prob = if energy_diff < 0.0 {
-                1.0
-            } else {
-                (-energy_diff / self.temperature).exp()
-            };
-
-            if rng.gen::<f64>() < acceptance_prob {
-                current_bias = candidate_bias.clone();
-                current_energy = candidate_energy;
+            // 3. Selection Logic (Greedy + Simulated Annealing)
+            if energy < best_energy {
+                best_energy = energy;
+                self.current_bias = candidate_bias;
+                stagnation_counter = 0; // Reset stagnation
                 
-                // Keep track of the absolute best
-                if current_energy < best_energy {
-                    best_energy = current_energy;
-                    best_bias = current_bias.clone();
-                    println!("   -> [Step {}] New Best E: {:.4}", i, best_energy);
+                // println!("   -> [Step {}] Improvement! Energy: {:.4}", step, best_energy);
+                
+                if best_energy <= 1e-6 {
+                    println!("✨ [VAPO] Convergence achieved at Step {}.", step);
+                    return 0.0;
                 }
+            } else {
+                stagnation_counter += 1;
             }
 
-            // 4. Termination
-            if best_energy < 0.001 {
-                println!("✅ [Result] Optimization Success. Logic Aligned.");
-                return Some(best_bias);
+            // 4. CHECK FOR TRAPS (Blind Spot Detection)
+            if stagnation_counter >= stagnation_limit {
+                // The optimizer is stuck. 
+                // Hypothesis: The solution is orthogonal to the current projection subspace.
+                // Action: Rotate the Matrix.
+                self.rotate_basis();
+                stagnation_counter = 0;
+                
+                // Heat up temperature to escape local wells
+                self.temperature = 1.5; 
             }
+
+            // Decay temperature
+            self.temperature *= 0.95;
         }
 
-        println!("⚠️ [VAPO] Max steps reached. Best energy achieved: {:.4}", best_energy);
-        // Even if we didn't hit 0.0, we return the best effort to minimize error.
-        Some(best_bias)
+        println!("⚠️ [VAPO] Loop finished. Final Energy: {:.4} (Rotations: {})", best_energy, self.rotation_count);
+        best_energy
+    }
+}
+
+// ------------------------------------------------------------------
+// Unit Tests ensuring the Rotation Logic works
+// ------------------------------------------------------------------
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_projection_consistency() {
+        let channel = BiasChannel::new();
+        let vec = BiasVector::new_zero();
+        let proj = channel.projector.project(&vec);
+        assert_eq!(proj.len(), EMBEDDING_DIM);
+        assert_eq!(proj[0], 0.0); // Zero bias should project to zero
     }
 
-    /// Mock function to simulate the "Project -> Decode -> STP Check" pipeline.
-    /// In the real system, this calls `stp_bridge::calculate_energy()`.
-    fn mock_verify_energy(&self, _ctx: &STPContext, bias: &[f64], base_error: f64) -> f64 {
-        // Logic: If the bias vector has the "correct" values (e.g. index 2 is high), energy drops.
-        // This simulates the STP engine checking the action derived from the biased logits.
+    #[test]
+    fn test_rotation_resets_basis() {
+        let mut channel = BiasChannel::new();
+        let original_weights = channel.projector.weights.clone();
         
-        let target_val = 2.0; // Assume the "Platonic Truth" requires index 2 to be ~2.0
-        let current_val = bias.get(2).unwrap_or(&0.0);
-        let distance = (target_val - current_val).abs();
+        channel.rotate_basis();
         
-        // Energy is proportional to distance from truth
-        // Base error ensures we don't start at 0 unless the input was already perfect
-        (base_error * 0.5 + distance * 0.5).max(0.0)
+        let new_weights = channel.projector.weights.clone();
+        assert_ne!(original_weights[0][0], new_weights[0][0]);
     }
 }
