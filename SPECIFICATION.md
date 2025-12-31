@@ -4,179 +4,128 @@
 
 ## 1. Mathematical Preliminaries
 
-### 1.1 Class Group Parameters
+### 1.1 Class Group Parameters & The Unknown Order
 
-Discriminant Generation:
-Define
+**Discriminant Generation:**
+Define the discriminant $\Delta$ as a hash-derived parameter:
 
 $$\Delta = -M$$
 
-where $M$ is a prime number derived from the generator's context hash, satisfying:
+where $M$ is a large prime number (e.g., 2048-bit) derived deterministically from the ContextHash satisfying $M \equiv 3 \pmod 4$.
 
-$$M \equiv 3 \pmod 4$$
+**The Open Secret:**
+While $\Delta$ is public, the group structure of $Cl(\Delta)$ remains opaque. Specifically, the Class Number $h(\Delta)$ (the order of the group) is computationally infeasible to calculate for large discriminants (Cohen-Lenstra Heuristics).
 
-This ensures that the imaginary quadratic field $\mathbb{Q}(\sqrt{\Delta})$ possesses a non-trivial class group structure.
+**Security Consequence:**
+The hardness of computing $h(\Delta)$ ensures that the group acts as a Group of Unknown Order. This prevents attackers (and the generator) from using Lagrange's Theorem ($g^{|G|} = 1$) to compute shortcuts for exponentiation.
 
-Security: The system's security relies on the computational hardness of determining the class number
+### 1.2 Algebraic Dynamics (The Arrow of Time)
 
-$$h(\Delta)$$
+We distinguish between the Commutative State Space and the Non-Commutative Time Evolution.
 
-(Time Security).
-
-### 1.2 Algebraic Dynamics (The True Non-Commutativity)
-
-We formally distinguish between the Commutative State Space and the Non-Commutative Dynamics.
-
-State Space (Abelian):
+**State Space (Space):**
 The Ideal Class Group $Cl(\Delta)$ is an Abelian group.
 
 $$S_1 \circ S_2 = S_2 \circ S_1$$
 
-Time Operator (Non-Commutative Action):
-We define the Time Operator not as a binary operation on states, but as an element of the Affine Transformation Semigroup $\text{Aff}(Cl(\Delta))$ acting on the state space.
+**Time Operator (VDF Action):**
+Time evolution is defined by the Squaring Operation, which acts as a Verifiable Delay Function (VDF) in an unknown order group.
 
-Let $\sigma(S) = S^2$ be the squaring endomorphism (Entropy Injection).
-Let $\tau_\epsilon(S) = S \circ \epsilon$ be the translation by perturbation $\epsilon$ (Will's Control).
+$$\Phi(S) = S^2$$
 
-The Time Evolution Operator for a step $t$ is the composition:
+**Evolution Step:**
+A single step of evolution combines the deterministic passage of time (Squaring) with the exertion of Will (Perturbation $\epsilon$).
 
-$$\Phi_{\epsilon_t} = \tau_{\epsilon_t} \circ \sigma$$
+$$S_{t+1} = \Phi(S_t) \circ \epsilon_t = S_t^2 \circ \epsilon_t$$
 
-$$\Phi_{\epsilon_t}(S) = S^2 \circ \epsilon_t$$
+**Irreversibility:**
+Computing square roots in a class group of unknown order is computationally equivalent to factoring the discriminant, which is hard. This ensures the evolution cannot be easily reversed.
 
-Proof of Non-Commutativity:
-The composition of time steps depends on order. For $\epsilon_1 \neq \epsilon_2$:
-
-$$\Phi_{\epsilon_2}(\Phi_{\epsilon_1}(S)) = (S^2 \circ \epsilon_1)^2 \circ \epsilon_2 = S^4 \circ \epsilon_1^2 \circ \epsilon_2$$
-
-$$\Phi_{\epsilon_1}(\Phi_{\epsilon_2}(S)) = (S^2 \circ \epsilon_2)^2 \circ \epsilon_1 = S^4 \circ \epsilon_2^2 \circ \epsilon_1$$
-
-Since $\epsilon_1^2 \circ \epsilon_2 \neq \epsilon_2^2 \circ \epsilon_1$ in general (unless trivial), the dynamics are strictly Non-Commutative.
+---
 
 ## 2. Affine Evolution & Optimization (The Soul & Will)
 
 ### 2.1 The Algebraic State (Soul)
 
-The state $S \in Cl(\Delta)$ is defined as an element in the ideal class group, represented by a binary quadratic form $(a, b, c)$:
+The state $S \in Cl(\Delta)$ is defined as an equivalence class of binary quadratic forms $[a, b, c]$.
 
-$$f(x, y) = ax^2 + bxy + cy^2$$
-
-### 2.2 Time Evolution (The Will's Loop)
+### 2.2 The Will's Loop (Search)
 
 Implemented in `src/will/optimizer.rs`.
 
-Input: Current state $S_t$.
-
-Perturbation: A generator $\epsilon \in \mathcal{P}$ selected from the Cayley Graph edges.
-
-Dynamics: 
-
-$$S_{t+1} = \Phi_{\epsilon}(S_t) = S_t^2 \circ \epsilon$$
-
-This represents a "Jump-then-Walk" movement on the graph. The squaring term $S^2$ provides mixing (long-range jump), while $\epsilon$ provides local navigation.
-
-Result: A final state $S^*$ optimized via discrete graph search.
+* **Input:** Current state $S_t$.
+* **Action:** The Will selects a perturbation $\epsilon \in \mathcal{P}$ (Generator Set) to navigate the Cayley Graph.
+* **Dynamics:** The optimizer searches for a path of perturbations such that the resulting state minimizes the STP energy.
+* **Constraint:** The search is a discrete optimization process. There are no gradients; the "Will" must physically traverse the graph nodes to evaluate them.
 
 ### 2.3 Materialization (The Body's Projection)
 
 Implemented in `src/body/decoder.rs`.
 
-Input: The optimized state $S^*$.
+* **Input:** The optimized state $S^*$.
+* **Process:** Recursive application of the Affine Projection Map $\Psi$.
+* **Output:** A sequence of logical action IDs $d_1, d_2, \dots, d_k$.
 
-Process: Recursive application of the Space Operator for projection.
-
-Output: A sequence of logical action IDs (Digits)
-
-$$d_1, d_2, \dots, d_k \in \mathbb{Z}_P$$
+---
 
 ## 3. Hyper-Tensor Topology (v-PuNN)
 
 ### 3.1 Coordinate Mapping
 
-Define a mapping $\Psi$ from the algebraic state $S$ to a logical path $\mathcal{P}$:
+Define a mapping $\Psi$ from the algebraic state $S$ to a logical path $\mathcal{P}$ using Linear Congruence Projection:
 
-$$\Psi(S) = [ \pi_1(S), \pi_2(S^2), \pi_3(S^4), \dots ]$智
+$$\Psi_k(S) = (a + k \cdot b) \pmod{P}$$
 
-where $\pi_k$ is a projection function modulo $P_k$. This constructs a fractal decision tree.
+This projection preserves the Lipschitz continuity of the algebraic manifold, allowing local search algorithms (like VAPO) to function effectively.
 
-### 3.2 Dimensional Folding
+### 3.2 Orthogonal Verification
 
-To verify logical consistency, the generated path is folded into a sequence of STP matrix operations:
+The HTP protocol requires that generated logic must be consistent. The STP engine verifies the logical validity of the materialized path.
 
-$$\text{State}_{logical} = M_{d_k} \ltimes \dots \ltimes M_{d_1} \ltimes \text{State}_{init}$$
+$$E_{STP}(\text{Materialize}(S^*)) == 0$$
 
-### 3.3 Orthogonal Anchoring
+---
 
-The HTP protocol requires that generated logic must be consistent across "orthogonal" directions:
+## 4. Proof of Will & Security Model
 
-Primary Path: The directly generated chain of logical inference.
+### 4.1 The Security Goal: Unforgeability
 
-Dual Path: A verification chain generated via a dual network (or by commuting the projection order).
+The goal of HTP security is not to hide the logic, but to prove that the logic was generated through computational effort (Search) rather than hallucinated or pre-computed via shortcuts.
 
-If
+### 4.2 Proof Bundle (The Artifact)
 
-$$E(\text{Primary}) == 0$$
+The output of the system is a verifiable artifact:
 
-and
+$$\text{ProofBundle} := \{ \mathbf{H}_{ctx}, S_{final}, \text{Trace}_{\epsilon} \}$$
 
-$$E(\text{Dual}) == 0$$
+* $\mathbf{H}_{ctx}$: Context Hash (anchors $\Delta$).
+* $S_{final}$: The result state.
+* $\text{Trace}_{\epsilon}$: The sequence of perturbations $[\epsilon_1, \epsilon_2, \dots, \epsilon_k]$ applied.
 
-the logic is considered a "Holographic Truth."
+### 4.3 Verification (Replay)
 
-## 4. Protocol Flow & Verifiable Binding
+The Verifier performs the following steps:
 
-### 4.1 The Proof Bundle
+1.  **Derive:** Recompute $\Delta$ from $\mathbf{H}_{ctx}$.
+2.  **Replay:** Starting from Identity, applying the sequence $S_{t+1} = S_t^2 \circ \epsilon_t$.
+3.  **Check:** Verify that the resulting $S_{final}$ yields $E_{STP} == 0$.
 
-Under the new architecture, the ProofBundle contains the complete algebraic trajectory of the generation process:
+### 4.4 Why this is "Secure"? (The Hardness Assumptions)
 
-$$\text{ProofBundle} := \{ \mathbf{Hash}_{ctx}, S_{final}, \text{Trace}_{\Phi}, \mathcal{P}_{logic} \}$$
+* **Sequentiality (No Parallelism):**
+    Due to the squaring operation $S \to S^2$ in a group of unknown order, computing the final state $S_{final}$ requires $\mathcal{O}(T)$ sequential group operations. It cannot be parallelized.
+* **No Shortcuts (No Forgery):**
+    Without knowing $h(\Delta)$, an attacker cannot compute $S^{2^T}$ directly. Therefore, they cannot "jump" to a valid solution state $S^*$ without actually traversing the path.
+* **Proof of Will (Proof of Search):**
+    Finding a trace that results in Zero Energy requires solving a discrete search problem on the graph. The existence of a valid bundle proves that the generator performed the necessary Work (Search) to align the algebra with logic.
 
-$\mathbf{Hash}_{ctx}$: Binding to Input (Context Hash)
+---
 
-$S_{final}$: The Optimized Soul (Result)
+## 5. Conclusion
 
-$\text{Trace}_{\Phi}$: The Sequence of Transformations $[\Phi_{\epsilon_1}, \Phi_{\epsilon_2}, \dots]$
+The HTP v1.4 specification defines a Proof-of-Will protocol:
 
-$\mathcal{P}_{logic}$: The Materialized Logic Path
-
-### 4.2 Verification Algorithm (Deterministic Replay)
-
-The logic for the Verifier:
-
-Context Check: Compute $h = \text{Hash}(Context)$ and verify it matches the hash in the bundle.
-
-Evolution Replay: Starting from $S_0 = \text{Identity}(h)$, apply the transformations in $\text{Trace}_{\Phi}$ sequentially:
-
-$$S_{final} = \Phi_{\epsilon_k}(\dots \Phi_{\epsilon_1}(S_0) \dots)$$
-
-This proves $S_{final}$ was derived through the specific dynamic history.
-
-Projection Check: Run $\Psi(S_{final})$ to verify the generation of $\mathcal{P}_{logic}$.
-
-Energy Check: Execute the STP engine to verify
-
-$$E(\mathcal{P}_{logic}) == 0$$
-
-## 5. Security Assumptions
-
-### 5.1 The Hidden Order Assumption
-
-We assume an attacker cannot directly construct a forged state $S_{fake}$ satisfying
-
-$$E(\Psi(S_{fake})) == 0$$
-
-without performing a search. This relies on the one-way nature and chaos of the $\Psi$ (projection) and STP energy functions.
-
-### 5.2 Time Security (Causal Dependency)
-
-Since the dynamics $\Phi_\epsilon$ involves squaring, the state evolves rapidly into deeper parts of the graph. Reversing the squaring operation (finding square roots in Class Groups) is computationally hard without knowledge of the group order. This guarantees the arrow of time in the logic generation process.
-
-## 6. Conclusion
-
-The HTP v1.3 specification defines a generative logical protocol:
-
-Algebra: Finite Abelian Class Groups.
-
-Dynamics: Non-Commutative Affine Transformation Semigroup.
-
-Logic: The stable attractor of the dynamics.
+* **Algebra:** Unknown Order Class Groups ($Cl(\Delta)$).
+* **Dynamics:** Sequential VDF (Squaring).
+* **Security:** Computational Unforgeability via Sequentiality.
+* **Truth:** The logical state reached only through the exertion of computational Will.
