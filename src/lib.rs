@@ -5,6 +5,12 @@ pub mod control;
 pub mod dsl;
 pub mod interface;
 pub mod soul; // [New] 注入灵魂模块！
+pub mod body {
+    pub mod topology;
+    pub mod projection;
+    pub mod decoder;
+    pub mod adapter;
+}
 
 /// Python 模块入口
 #[pymodule]
