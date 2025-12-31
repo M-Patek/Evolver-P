@@ -5,115 +5,109 @@ use crate::will::perturber::{self, EnergyEvaluator};
 
 /// VAPO (Valuation-Adaptive Perturbation Optimization) 核心循环
 ///
-/// 该函数执行局部离散搜索（Hill Climbing / Metropolis-Hastings 的变体）。
+/// 该函数执行在代数 Cayley 图上的离散局部搜索 (Discrete Local Search on Cayley Graph)。
+/// 
+/// # 数学修正
+/// - 这里的 "State Space" 是理想类群 Cl(Delta) 的 Cayley 图。
+/// - "Perturbations" 实际上是图的生成元集合 (Generators) \mathcal{P}。
+/// - 优化过程不再是流形上的梯度下降，而是图上的贪婪游走 (Greedy Walk)。
 /// 
 /// # 逻辑流程
-/// 1. 从 `start_state` 提取判别式 $\Delta$。
-/// 2. 生成一批微小的代数扰动 $\{\epsilon_i\}$。
-/// 3. 进入优化循环：
-///    - **估值调度 (Valuation Schedule)**: 随着迭代进行，动态调整扰动窗口。
-///      初期允许“巨大”扰动以跳出深坑，后期收缩至“微小”扰动进行精细对齐。
-///    - 对当前状态应用有效窗口内的扰动，生成候选集。
-///    - 将候选状态“具象化”为路径（Digits），评估其 STP 能量。
-///    - 贪婪地选择能量最低的状态作为下一次迭代的起点。
-///    - 如果发现能量 $E=0$ 的状态，立即返回（Bingo!）。
-/// 4. 如果超过最大迭代次数仍未收敛，返回当前找到的最好的状态（Best Effort）。
+/// 1. 从 `start_state` 提取判别式 $\Delta$，确定所在的图组件。
+/// 2. 生成生成元集合 $\{\epsilon_i\}$ (即 Edge Set)。
+/// 3. 进入图搜索循环：
+///    - **动态邻域调度 (Dynamic Neighborhood Schedule)**: 
+///      根据当前的搜索进度，动态调整使用的生成元子集。
+///      初期使用 "Coarse" 生成元进行大步幅跳跃（在投影空间中造成剧烈变化）。
+///      后期使用 "Fine" 生成元进行局部调整。
+///    - 扩展当前节点的所有邻居。
+///    - 计算邻居的 STP 能量。
+///    - 贪婪地移动到能量最低的邻居节点。
+/// 4. 如果发现能量 $E=0$ 的节点，搜索结束。
 pub fn optimize(
     start_state: &ClassGroupElement,
     evaluator: &impl EnergyEvaluator
 ) -> ClassGroupElement {
-    // 1. 自动提取判别式: Delta = b^2 - 4ac
-    // 这是一个不变量，定义了我们所在的类群。
+    // 1. 自动提取判别式
     let four = BigInt::from(4);
     let delta = (&start_state.b * &start_state.b) - (&four * &start_state.a * &start_state.c);
 
-    // 2. 准备扰动集 (The Perturbation Set)
-    // 我们生成前 50 个分裂素数对应的微小群元素。
-    // 数量增加以支持初期的“大幅度”探索（大素数对应更大的群结构跳跃）。
+    // 2. 准备生成元集 (The Generator Set / Perturbation Set)
+    // 这些对应于 Cayley 图中与当前节点相连的边
     let perturbation_count = 50;
     let perturbations = perturber::generate_perturbations(&delta, perturbation_count);
 
     let mut current_state = start_state.clone();
     let mut current_energy = evaluate_state(&current_state, evaluator);
     
-    // 如果初始状态就是完美的，直接返回
     if current_energy.abs() < 1e-6 {
         return current_state;
     }
 
     let max_iterations = 100;
 
-    // 3. 优化循环 (The Will Loop)
+    // 3. 搜索循环 (The Graph Walk)
     for _iter in 0..max_iterations {
-        // [Task 3.4] 估值自适应调度 (Valuation Schedule)
+        // [Task 3.4] 生成元子集调度 (Generator Subset Scheduling)
         // -------------------------------------------------------------
-        // 逻辑：模拟退火 / 由粗到精 (Coarse-to-Fine)
-        // - 进度 (Progress): 0.0 -> 1.0
-        // - 窗口 (Window): 覆盖所有 50 个扰动 -> 收缩至前 5 个扰动
-        //
-        // 原理：列表中的扰动是按范数（素数 p）升序排列的。
-        // "大范围"搜索意味着我们要利用列表尾部较大的 p 进行大幅度状态跳跃。
-        // "精细"搜索意味着我们只使用列表头部极小的 p (如 p=2, 3) 进行微调。
+        // 原理：并非所有生成元都是平等的。
+        // 在投影映射 \Psi 下，某些生成元会导致逻辑路径剧烈变化（Coarse），
+        // 而另一些只会导致微小的叶节点翻转（Fine）。
+        // 我们通过收缩生成元窗口来模拟 "从粗到细" 的搜索。
         let progress = _iter as f64 / max_iterations as f64;
         
-        // 衰减函数：线性收缩
-        // start_ratio = 1.0 (使用 100% 的扰动)
-        // end_ratio = 0.1 (只使用 10% 的最小扰动)
+        // 窗口收缩：随着迭代，减少可用的生成元数量，
+        // 强迫搜索集中在 "Fine" 生成元（通常是列表前部的那些小素数）上。
         let window_ratio = 1.0 - (0.9 * progress); 
         let active_count = (perturbations.len() as f64 * window_ratio).ceil() as usize;
-        
-        // 守卫：至少保留 3 个最小扰动，防止窗口过于狭窄导致死锁
         let active_count = active_count.max(3).min(perturbations.len());
         
         let active_perturbations = &perturbations[0..active_count];
         // -------------------------------------------------------------
 
-        let mut best_candidate = current_state.clone();
+        let mut best_neighbor = current_state.clone();
         let mut min_energy = current_energy;
         let mut found_better = false;
 
-        // 并行评估所有候选者 (这里简化为串行，实际部署建议用 Rayon)
+        // 遍历邻域 (Explore Neighborhood)
         for eps in active_perturbations {
-            // 正向扰动: S' = S * eps
-            let candidate_pos = current_state.compose(eps);
-            let energy_pos = evaluate_state(&candidate_pos, evaluator);
+            // 正向边: S' = S * eps
+            let neighbor_pos = current_state.compose(eps);
+            let energy_pos = evaluate_state(&neighbor_pos, evaluator);
 
             if energy_pos < min_energy {
                 min_energy = energy_pos;
-                best_candidate = candidate_pos;
+                best_neighbor = neighbor_pos;
                 found_better = true;
             }
 
-            // 逆向扰动: S' = S * eps^-1 (利用逆元进行双向搜索)
-            // 注：ClassGroupElement 的逆元通常是 (a, -b, c)
+            // 逆向边: S' = S * eps^-1
+            // Cayley 图是无向的（或双向的），我们需要检查逆元方向
             let inverse_eps = eps.inverse();
-            let candidate_neg = current_state.compose(&inverse_eps);
-            let energy_neg = evaluate_state(&candidate_neg, evaluator);
+            let neighbor_neg = current_state.compose(&inverse_eps);
+            let energy_neg = evaluate_state(&neighbor_neg, evaluator);
 
             if energy_neg < min_energy {
                 min_energy = energy_neg;
-                best_candidate = candidate_neg; // 修正逻辑：更新 best_candidate
+                best_neighbor = neighbor_neg; 
                 found_better = true;
             }
         }
 
         // 决策时刻
         if min_energy.abs() < 1e-6 {
-            // 找到了完美解！
-            return best_candidate;
+            return best_neighbor;
         }
 
         if found_better {
-            // 登山：移动到能量更低的状态
-            current_state = best_candidate;
+            // 移动到更好的邻居
+            current_state = best_neighbor;
             current_energy = min_energy;
         } else {
-            // 局部最优陷阱 (Local Minima)
-            // 随着窗口缩小，如果在这个精细度下找不到更好的解，我们选择终止，
-            // 而不是盲目地继续（因为再迭代窗口只会更小）。
-            // 
-            // 在更复杂的实现中，这里可以加入 "Reheat" (重热) 机制，
-            // 暂时放大窗口尝试跳出，但目前保持简单。
+            // 陷入局部最优 (Local Minima)
+            // 在图搜索中，这通常意味着我们所在的盆地没有向下的出口。
+            // 实际工程中可能需要重启 (Restart) 或模拟退火 (accept bad moves)，
+            // 这里暂且保持简单的贪婪停止。
             break;
         }
     }
@@ -121,28 +115,13 @@ pub fn optimize(
     current_state
 }
 
-/// 辅助函数：将代数状态具象化并评估能量
-/// 
-/// "Materialize Path": 将抽象的代数对象 $(a, b, c)$ 投影到
-/// 物理引擎可以理解的数字序列（Digits/Tokens）。
 fn evaluate_state(state: &ClassGroupElement, evaluator: &impl EnergyEvaluator) -> f64 {
     let path = materialize_path(state);
     evaluator.evaluate(&path)
 }
 
-/// 具象化路径 (Materialize Path)
-///
-/// 将 ClassGroupElement 转换为 u64 序列。
-/// 这是一个从“理型世界”到“现实世界”的投影。
-/// 
-/// 这里的实现是一个简单的哈希投影，实际系统中会连接到 `src/body/projection.rs`
-/// 使用投影矩阵 $W$。
 fn materialize_path(state: &ClassGroupElement) -> Vec<u64> {
-    // 临时逻辑：将 (a, b, c) 的低 64 位作为特征向量
-    // 注意：BigInt 到 u64 可能会截断，但这对于简单的指纹足够了
     let mut digits = Vec::new();
-    
-    // 简单的转换逻辑，避免 unwrap panic
     let extract_u64 = |n: &BigInt| -> u64 {
         let (_sign, bytes) = n.to_bytes_le();
         if bytes.is_empty() {
