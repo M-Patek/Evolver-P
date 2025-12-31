@@ -1,113 +1,94 @@
 # Evolver: Algebraic Logic Generation Engine
+
 "Logic is not corrected; it is evolved."
 
-Evolver is a native algebraic logic generation engine based on the Hyper-Tensor Protocol (HTP) and Semi-Tensor Product (STP).
+Evolver is a native algebraic logic generation engine based on the Hyper-Tensor Protocol (HTP).
 
-Unlike traditional "Neuro-Symbolic" systems, Evolver no longer acts as a "correction sidecar" or a "probabilistic patcher" for LLMs. It is an independent generative core that "grows" mathematically certain logical paths directly by performing evolution and search on rigorous algebraic manifolds (ideal class groups).
+Unlike traditional "Neuro-Symbolic" systems, Evolver no longer acts as a "correction sidecar" or a "probabilistic patcher" for LLMs. It is an independent generative core that "grows" mathematically certain logical paths directly by performing evolution and search on rigorous algebraic manifolds.
 
 ## 🏛️ Core Architecture: The Tripartite Soul
+
 The system architecture mimics the structure of a living organism, consisting of three core components: Soul (Algebraic Kernel), Will (Optimization Intent), and Body (Topological Form).
 
-### 1. The Soul (Algebraic Core)
-* **Code:** `src/soul/algebra.rs`
-* **Mathematical Entity:** Elements in the Ideal Class Group 
-$$Cl(\Delta)$$
+### 1. The Soul (Algebraic Kernel)
+
+**Code:** `src/soul/algebra.rs`
+
+**Mathematical Entity:** Elements in the Ideal Class Group 
+$Cl(\Delta)$
 of imaginary quadratic fields.
-* **Responsibility:** Carries the "subconscious" of logic. It does not store specific tokens but rather the algebraic states 
-$$(a, b, c)$$
-* **Mechanism:** Driven by a seed generated from the Context Hash, the Soul undergoes deterministic chaotic evolution along group orbits.
+
+**Feature:** Operates in a Group of Unknown Order, providing the cryptographic foundation for the "Proof of Will".
 
 ### 2. The Will (VAPO Optimizer)
-* **Code:** `src/will/optimizer.rs`
-* **Algorithm:** VAPO (Valuation-Adaptive Perturbation Optimization).
-* **Responsibility:** Searching for Truth.
-* **Workflow:**
-    * Observes the current algebraic state.
-    * Projects it into logical actions and calculates the STP energy 
-($$E_{STP}$$).
-    * If 
-$$E > 0$$
- (logical contradiction), it applies a perturbation in the algebraic space.
-    * This is a discrete, non-gradient Metropolis-Hastings search process acting directly on the Soul.
+
+**Code:** `src/will/optimizer.rs`
+
+**Algorithm:** VAPO (Valuation-Adaptive Perturbation Optimization).
+
+**Responsibility:** Searching for Truth.
+
+**Mechanism:** It performs a discrete walk on the Cayley Graph. Because the group order is unknown, this search cannot be "faked" or "shortcut"—it represents genuine computational effort.
 
 ### 3. The Body (Topological Projector)
-* **Code:** `src/body/`
-* **Mathematical Entity:** v-PuNN (Valuation-Adaptive Perturbation Neural Network) topology.
-* **Responsibility:** Materialization.
-* **Mechanism:** Collapses the optimized abstract algebraic state 
-$$(a, b, c)$$
-into human-readable digit sequences or logical action paths through Artin-like Projection and fractal unfolding.
 
----
+**Code:** `src/body/`
+
+**Mechanism:** Collapses the optimized algebraic state into human-readable digit sequences through Linear Congruence Projection, ensuring that algebraic symmetries map to logical structures.
+
+## 🛡️ Security Model: Proof of Will
+
+Evolver introduces a new security paradigm for generated logic:
+
+**The Problem:** How do we know an AI actually "reasoned" through a problem rather than just retrieving a memorized answer or hallucinating?
+
+**The Solution:** Proof of Will (PoW) via Algebraic VDFs.
+
+* **Unknown Order:** The algebraic space is constructed such that its total size (Class Number) is unknown.
+* **Sequentiality:** Evolution involves repeated squaring 
+($S \to S^2$)
+, acting as a Verifiable Delay Function (VDF). This forces the generation process to be sequential and non-parallelizable.
+* **Unforgeability:** An attacker cannot produce a valid "Proof Bundle" (a trace of perturbations leading to Zero Energy) without actually running the search algorithm. The Proof Bundle is a cryptographic certificate of the computational work of reasoning.
 
 ## 🔄 Workflow: The Generation Loop
-Evolver's execution no longer relies on external LLM logits. The process is entirely endogenous:
 
-1.  **Inception:** User inputs the Context (string).
-2.  **Seeding:** Calculates Hash(Context) as the initial kinetic energy acting on the Identity Soul.
-$$S_0 = S_{id} \circ \text{Evolve}(\text{Seed})$$
-3.  **Optimization:** The Will takes control. It continuously applies algebraic perturbations to 
-$$S_t$$
- until it finds a state 
-$$S^*$$
- where the materialized logical path satisfies the zero-energy constraint.
-$$\text{Minimize } E_{STP}(\text{Materialize}(S)) \implies S^*$$
-4.  **Materialization:** Unfolds the perfect algebraic state 
-$$S^*$$
- into a token sequence.
-$$\text{Path} = \text{Project}(S^*)$$
+1.  **Inception:** User inputs Context. System derives a unique Discriminant 
+$\Delta$
+.
+2.  **Seeding:** Initial State 
+$S_0$
+is born from the Context Hash.
+3.  **The Will's Journey:** The VAPO optimizer applies perturbations 
+$\epsilon$
+and time steps (squaring).
 
----
+$$S_{t+1} = S_t^2 \circ \epsilon$$
 
-## 🛠️ Tech Stack & Features
-* **Language:** Rust (Focusing on zero-cost abstractions and type safety)
-* **Algebra:** `num-bigint` (Handling class group operations for large integers)
-* **Optimization:** VAPO (Proprietary discrete optimization algorithm)
-* **Verification:** STP Engine (Logic-physics engine based on Semi-Tensor Product)
-* **Interface:** PyO3 (Providing Python bindings for easy integration)
+4.  **Convergence:** The process stops when the projected logic satisfies 
+$E_{STP} = 0$
+.
+5.  **Artifact:** Returns the logical path AND the algebraic trace as the Proof of Will.
 
 ## 📦 Quick Start (Python API)
-Evolver is designed as a high-performance Python extension module.
 
-### Compilation
-```bash
+```python
 # Requires Rust toolchain installed
 maturin develop --release
-```
 
-### Usage Example
-```python
+
 from new_evolver import PyEvolver
 
-# 1. Initialize the engine
-# p=409 (Prime base), k=19 (Decision tree depth)
-engine = PyEvolver(409, 19)
+# Initialize with standard parameters
+engine = PyEvolver(p=409, k=19)
 
-# 2. Input context (e.g., a mathematical proposition)
-context = "Prove that the sum of two Odd numbers is Even."
-
-# 3. Align
-# This step involves the full process of evolution, search, and materialization.
-# Returns: An STP-verified logical path (Token IDs) with zero energy.
-path = engine.align(context)
+# Align logic.
+# This operation performs the actual algebraic search (The Will).
+# The time taken is proportional to the logical complexity (Distance on the Graph).
+path = engine.align("Prove that the sum of two Odd numbers is Even.")
 
 print(f"Generated Logic Path: {path}")
-# Output: [3, 7, 6, ...] (Corresponding to: Define n: Odd, Define m: Odd, Apply Add...)
 ```
 
----
-
-## 🧠 Theoretical Background
-### Why move from Algebra to Logic?
-Traditional AI attempts to simulate logical reasoning through trained neural networks (probabilistic approximation). Evolver takes the opposite approach: we construct an algebraic space (Class Groups) isomorphic to logical structures. In this space, Truth is the stable state with the lowest energy.
-
-We don't train models to "guess" answers; we use optimization algorithms to let the answers "emerge" from the algebraic structure.
-
-* **Semi-Tensor Product (STP):** Provides the physical laws of conservation for logic.
-* **Class Groups:** Provide a sufficiently complex and continuous search space (manifold) allowing discrete logic to be optimized.
-
----
-
 ## 📜 License
+
 M-Patek PROPRIETARY LICENSE Copyright © 2025 M-Patek.
-See the LICENSE file for details.
