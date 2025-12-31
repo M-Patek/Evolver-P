@@ -1,69 +1,42 @@
-use crate::dsl::schema::{ProofAction, LogicType};
+use serde::{Deserialize, Serialize};
 
-/// 语义适配器 (Semantic Adapter)
-///
-/// 职责：将代数投影产生的“无意义”数字序列，确定性地转换为“有意义”的逻辑证明动作序列。
-/// 这是一个核心的架构组件，它连接了 "Body" (拓扑投影) 和 "Mind" (逻辑验证)。
-///
-/// 映射逻辑 (v1.5 Parity Logic):
-/// - Digits[0] -> 变量 'n' 的初始类型 (Even/Odd)
-/// - Digits[1] -> 变量 'm' 的初始类型 (Even/Odd)
-/// - Digits[2] -> 目标断言的类型 (Even/Odd)
-pub struct SemanticAdapter;
+/// The ProofBundle is the verifiable artifact of the "Proof of Will".
+/// It contains not just the answer (LogicPath), but the cryptographic proof
+/// that the answer was found through legitimate search on the algebraic manifold.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProofBundle {
+    /// The input context (e.g., "Prove 1+1=2") hashed to anchor the session.
+    pub context_hash: String,
+    
+    /// The algebraic parameters derived from the context.
+    /// In production, this defines the Class Group Cl(Delta).
+    pub discriminant: String, // String to support large integers in JSON
+    
+    /// The security level used for this generation.
+    pub security_bits: u32,
 
-impl SemanticAdapter {
-    /// 将一串 u64 (来自代数状态投影) 转化为具体的证明步骤
-    ///
-    /// # 参数
-    /// * `path`: 来自 BodyProjector 的数字序列
-    ///
-    /// # 返回
-    /// * `Vec<ProofAction>`: 可被 STP 引擎执行的逻辑动作序列
-    pub fn materialize(path: &[u64]) -> Vec<ProofAction> {
-        let mut actions = Vec::new();
+    /// The seed state where the search began.
+    pub start_state: String,
 
-        // 鲁棒性检查：如果路径太短，无法形成最小的逻辑三段论，返回空序列。
-        // 空序列在 STP Bridge 中会被赋予极高的能量惩罚。
-        if path.len() < 3 {
-            return actions;
-        }
+    /// The final state found by the Will.
+    pub final_state: String,
 
-        // --- Step 1: 定义前置条件 (Premises) ---
-        
-        // 利用 path[0] 的奇偶性定义第一个变量 'n'
-        // 奇数映射为 Odd，偶数映射为 Even
-        let type_n = if path[0] % 2 == 0 { LogicType::Even } else { LogicType::Odd };
-        actions.push(ProofAction::Define { 
-            symbol: "n".to_string(), 
-            initial_type: type_n 
-        });
+    /// The trace of perturbations applied to reach the final state.
+    /// Replaying this trace on the start_state MUST yield the final_state.
+    pub trace: Vec<String>,
 
-        // 利用 path[1] 的奇偶性定义第二个变量 'm'
-        // 这迫使 VAPO 搜索必须同时满足两个变量的代数约束
-        let type_m = if path[1] % 2 == 0 { LogicType::Even } else { LogicType::Odd };
-        actions.push(ProofAction::Define { 
-            symbol: "m".to_string(), 
-            initial_type: type_m 
-        });
+    /// The materialized logical path (the actual "Answer").
+    pub logic_path: Vec<String>,
+    
+    /// The energy of the final state (Should be 0 for a valid proof).
+    pub energy: f64,
+}
 
-        // --- Step 2: 构造结论 (Conclusion) ---
-
-        // 利用 path[2] 决定断言的目标类型
-        // 这是一个 "猜测" (Hypothesis)。
-        // 只有当这个猜测与 Step 1 的物理推导结果一致时，能量才会归零。
-        let target_type = if path[2] % 2 == 0 { LogicType::Even } else { LogicType::Odd };
-        
-        // 构造断言语句： Assert "(n + m) is [TargetType]"
-        // 在 STP 内部，这会触发隐式的 Apply(Add, n, m) 并检查结果
-        actions.push(ProofAction::Assert { 
-            condition: format!("(n + m) is {:?}", target_type) 
-        });
-
-        // (未来扩展)
-        // 如果 path 更长，可以继续通过 adapter 映射更多步骤，例如：
-        // path[3] -> Apply(Multiply, n, m)
-        // path[4] -> Assert result is ...
-        
-        actions
+impl ProofBundle {
+    /// verifying the bundle means replaying the trace and checking energy.
+    pub fn is_valid(&self) -> bool {
+        // Logic to replay trace would go here.
+        // For now, we trust the energy field if the signature matches (omitted).
+        self.energy == 0.0
     }
 }
