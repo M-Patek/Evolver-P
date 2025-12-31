@@ -2,7 +2,7 @@
 
 "Logic is not corrected; it is evolved."
 
-This document records the critical architectural decisions made during the transition of the Evolver project from v0.1 (Sidecar/Corrector) to the current Native Generator, Master Meow.
+This document records the critical architectural decisions made during the transition of the Evolver project from (Sidecar/Corrector) to the current Native Generator, Master Meow.
 
 ---
 
