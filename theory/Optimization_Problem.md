@@ -1,104 +1,108 @@
-THEORY PATCH: The Optimization Problem Statement
+# Optimization Problem: Algebraic State Search
 
-Formalizing VAPO as a Variable Neighborhood Search (VNS)
+## 1. The Paradigm Shift
 
-1. The Formulation
+In the architecture, the optimization problem is no longer about finding a "bias vector ($\vec{b}$)" in continuous logit space to correct a probability distribution. Instead, it is about searching for an "Ideal State ($S$)" on a discrete algebraic manifold to generate truth.
 
-The Bias Controller solves a Black-Box Discrete Optimization problem at each time step $t$. We explicitly acknowledge that the objective function is non-differentiable and terraced.
+Optimization is no longer "Correction," but "Discovery."
 
-2. Problem Variables
+---
 
-Decision Variable:
-$\vec{b} \in \mathbb{Z}_L^k$
-(Discrete Bias Vector on Torus).
+## 2. Problem Formulation
 
-Constants:
+### 2.1 Decision Variable
 
-$z_0 \in \mathbb{R}^V$
-: Base logits from Generator.
+The optimization object is an element of the ideal class group $Cl(\Delta)$ of an imaginary quadratic field $\mathbb{Q}(\sqrt{\Delta})$.
 
-$P \in \mathbb{R}^{V \times k}$
-: Projection matrix (The "Canon").
+$$
+S = (a, b, c) \in Cl(\Delta)
+$$
 
-$s_t$
-: Current STP algebraic state.
+Where $S$ satisfies the discriminant constraint: 
 
-3. The Objective Function
+$$
+b^2 - 4ac = \Delta
+$$
 
-The objective $J(\vec{b})$ is a composite Lagrangian with a Hard Logic Barrier:
+In the codebase, this corresponds to the `ClassGroupElement` struct in `src/soul/algebra.rs`.
 
-$$J(\vec{b}) = \underbrace{\mathcal{E}_{STP}(s_t, \Pi(z_0 + P\vec{b}))}_{\text{Discrete Step Function}} + \lambda \cdot \underbrace{\mathcal{V}_{p}(\vec{b})}_{\text{Regularization}}$$
+### 2.2 Objective Function
 
-$\Pi$
-: The Voronoi Decoder (Argmax).
+We seek a state $S^*$ such that the logical path generated through its topological projection satisfies the zero-energy constraint of the STP (Semi-Tensor Product) engine.
 
-$\mathcal{E}_{STP}$
-: The Energy functional ($0$ if valid, $>0$ if invalid).
+$$
+\text{Minimize } J(S) = E_{STP}(\Psi(S))
+$$
 
-$\mathcal{V}_{p}$
-: The p-adic Valuation Cost. We prefer "fine-tuning" (high valuation perturbations) over "structural changes" (low valuation perturbations).
+Where:
 
-4. Constraints
+* $\Psi(S)$: Materialization Map. It projects the algebraic state $S$ into a discrete sequence of actions (Digits/Actions).
+    * Implementation: `src/body/decoder.rs -> materialize_path`
+* $E_{STP}$: Energy Evaluation. Checks whether the action sequence violates logical rules.
+    * Implementation: `src/dsl/stp_bridge.rs -> calculate_energy`
 
-Hard Constraint (Logic): The search loop must eventually find $\vec{b}^*$ such that
-$\mathcal{E}_{STP}(\vec{b}^*) = 0$
-.
+### 2.3 Constraints
 
-Domain Constraint:
-$\vec{b} \in [0, L)^k$
-(Torus boundary).
+* **Algebraic Closure**: $S$ must always remain within the group $Cl(\Delta)$. This constraint is automatically satisfied by the mathematical properties of the group operation (compose).
+* **Computational Budget**: Number of iterations 
 
-Budget Constraint:
-$N_{iter} \le N_{max}$
-(Real-time limit).
+$$
+N_{iter} \le N_{max}
+$$
 
-5. VAPO as a Solver Algorithm
+---
 
-Since Gradient Descent is inapplicable to $J(\vec{b})$ directly, VAPO implements a Variable Neighborhood Search (VNS) strategy, jumping between "Surrogate Gradient Descent" and "Random Tunneling".
+## 3. Search Space Structure
 
-Algorithm State: Current solution
-$\vec{b}_{curr}$
-.
+The search space is not a Euclidean space $\mathbb{R}^n$, but a **Cayley Graph**.
+Nodes are group elements; edges are generators (perturbations).
 
-Modes of Operation:
+### 3.1 Neighborhood Definition
 
-Surrogate Descent (Fine-Tuning):
+For the current state $S_{curr}$, its neighborhood $\mathcal{N}(S_{curr})$ is defined as:
 
-Assumption: Locally, the embedding space gradient approximates the logical gradient.
+$$
+\mathcal{N}(S_{curr}) = \{ S_{curr} \circ \epsilon \mid \epsilon \in \mathcal{P} \}
+$$
 
-Action: b_new = b_curr - alpha * project(residual)
+Where $\mathcal{P}$ is the **Perturbation Set**, consisting of small prime ideals with specific norms.
+Implementation: `src/will/perturber.rs -> generate_perturbations`
 
-Effective when:
-$E > 0$
-but small (near the correct semantic cluster).
+### 3.2 Valuation-Adaptive
 
-Stochastic Tunneling (Coarse Jump):
+The "topography" of the search space is determined by $p$-adic valuation.
 
-Assumption: Stuck in a local minimum (Logic Trap).
+* **High Valuation (Small Norm)**: Corresponds to short edges in the group graph, used for local fine-tuning.
+* **Low Valuation (Large Norm)**: Corresponds to long jumps (tunneling) in the group graph, used to escape local minima.
 
-Action: Apply a perturbation to Low-Valuation bits (Large $p$-adic distance).
+---
 
-Effective when:
-$E$
-is high or stalled.
+## 4. Solver Algorithm: VAPO (Valuation-Adaptive Perturbation Optimization)
 
-6. Code Implication: Explicit Cost Function
+VAPO is a variant of the Discrete Metropolis-Hastings Search running on a group manifold.
 
-The Rust implementation separates the "Cost Evaluator" from the "Search Strategy".
+### Algorithm Flow:
 
-```rust
-struct OptimizationProblem<'a> {
-    base_logits: &'a [f64],
-    stp_ctx: &'a STPContext,
-}
+1.  **Initialization**: 
+    $$S_0 = \text{Hash}(Context)$$
+2.  **Iteration** ($t=1 \dots N$):
+    * **Schedule**: Calculate the "perturbation window" based on current progress. Initial stages allow large jumps (using large primes); later stages shrink to fine adjustments (using only small primes).
+    * **Propose**: Generate a set of candidate states 
+        $$\{ S_i' = S_t \circ \epsilon_i \}$$
+    * **Evaluate**: Parallelly calculate the STP energy for each candidate 
+        $$E_i = J(S_i')$$
+    * **Select**:
+        * If $\min(E_i) = 0$, Bingo! Return $S_{best}$ immediately.
+        * Otherwise, greedily move to the state with the lowest energy 
+            $$S_{t+1} = \text{argmin}(S_i')$$
+    * *(Optional)* Introduce a Simulated Annealing mechanism to allow acceptance of inferior solutions with a certain probability (current code is purely greedy).
 
-impl<'a> OptimizationProblem<'a> {
-    /// Evaluates J(b). Note: This step function has zero gradient usually.
-    fn evaluate(&self, bias: &BiasVector) -> f64 {
-        let action = self.decode(bias);
-        let energy = self.stp_ctx.energy(&action);
-        let regularization = bias.p_adic_norm();
-        energy + LAMBDA * regularization
-    }
-}
-```
+---
+
+## 5. Conclusion
+
+This optimization problem is a **Black-box Discrete Optimization Problem**.
+
+We do not calculate gradients $\nabla J$ (since $J$ is a step function and $S$ is discrete); instead, we exploit the **Orbit Structure** of the algebraic group to traverse the state space.
+
+The optimizer's task is to "spin" on the group orbit until it hits the truth.
