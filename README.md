@@ -1,128 +1,113 @@
-# Evolver: Neuro-Symbolic Alignment Orchestrator
+# Evolver: Algebraic Logic Generation Engine
+"Logic is not corrected; it is evolved."
 
-(Bias-Controlled HTP Architecture)
+Evolver is a native algebraic logic generation engine based on the Hyper-Tensor Protocol (HTP) and Semi-Tensor Product (STP).
 
-> "Logic is not generated; it is orchestrated. Search is not blind; it is guided."
+Unlike traditional "Neuro-Symbolic" systems, Evolver no longer acts as a "correction sidecar" or a "probabilistic patcher" for LLMs. It is an independent generative core that "grows" mathematically certain logical paths directly by performing evolution and search on rigorous algebraic manifolds (ideal class groups).
 
-Evolver is a neuro-symbolic alignment system based on the Hyper-Tensor Protocol (HTP) and Semi-Tensor Product (STP). It solves the "Logical Hallucination" problem not by training a perfect generator, but by wrapping a chaotic LLM in a rigorous algebraic control loop.
+## 🏛️ Core Architecture: The Tripartite Soul
+The system architecture mimics the structure of a living organism, consisting of three core components: Soul (Algebraic Kernel), Will (Optimization Intent), and Body (Topological Form).
 
-## 🏛️ Core Architecture: The Four Pillars
+### 1. The Soul (Algebraic Core)
+* **Code:** `src/soul/algebra.rs`
+* **Mathematical Entity:** Elements in the Ideal Class Group 
+$$Cl(\Delta)$$
+of imaginary quadratic fields.
+* **Responsibility:** Carries the "subconscious" of logic. It does not store specific tokens but rather the algebraic states 
+$$(a, b, c)$$
+* **Mechanism:** Driven by a seed generated from the Context Hash, the Soul undergoes deterministic chaotic evolution along group orbits.
 
-The system is a closed loop involving four distinct components, transitioning from "probabilistic guessing" to "algebraic truth":
-
-### 1. The Generator (Chaotic Core)
-
-* **Role:** The "Dreamer". Provides raw cognitive primitives (Logits).
-* **Traits:** Retains chaotic weights based on the Hidden Order Assumption.
-* **Status:** Permitted to hallucinate.
-
-### 2. The STP Engine (Constraint Checker)
-
-* **Code:** `src/dsl/stp_bridge.rs`
-* **Role:** The "Physics Engine".
-* **Principle:** Maps logical actions to matrix operations.
-
-$$
-x(t+1) = L \ltimes x(t)
-$$
-
-* **Output:** Discrete Energy ($E$).
-
-$$
-E = 0.0
-$$
-
-: Logical Consistency (QED).
-
-$$
-E > 0.0
-$$
-
-: Violation (e.g., "Odd + Odd = Odd").
-
-### 3. The Intuition Engine (Transformer Sidecar)
-
-* **Role:** The "Navigator".
-* **Type:** A lightweight Transformer trained on successful VAPO traces.
-* **Function:** Proposal Generation.
-* It does NOT provide gradients (the landscape is discrete).
-* It provides a Proposal Distribution.
-
-$$
-Q(\vec{b} | \text{Context})
-$$
-
-"Based on history, the solution is likely in this direction."
-
-### 4. The Bias Controller (VAPO Optimizer)
-
-* **Code:** `src/control/bias_channel.rs`
-* **Role:** The "Driver".
+### 2. The Will (VAPO Optimizer)
+* **Code:** `src/will/optimizer.rs`
 * **Algorithm:** VAPO (Valuation-Adaptive Perturbation Optimization).
-* **Mechanism:** Metropolis-Hastings Search.
-* Takes the Proposal from the Intuition Engine.
-* Performs local discrete search/perturbation to latch onto the exact $E=0$ state.
-* Projects the final Bias Vector ($\vec{b}$) onto the Generator's logits.
+* **Responsibility:** Searching for Truth.
+* **Workflow:**
+    * Observes the current algebraic state.
+    * Projects it into logical actions and calculates the STP energy 
+($$E_{STP}$$).
+    * If 
+$$E > 0$$
+ (logical contradiction), it applies a perturbation in the algebraic space.
+    * This is a discrete, non-gradient Metropolis-Hastings search process acting directly on the Soul.
 
-## 🛠️ Implementation & Tech Stack
+### 3. The Body (Topological Projector)
+* **Code:** `src/body/`
+* **Mathematical Entity:** v-PuNN (Valuation-Adaptive Perturbation Neural Network) topology.
+* **Responsibility:** Materialization.
+* **Mechanism:** Collapses the optimized abstract algebraic state 
+$$(a, b, c)$$
+into human-readable digit sequences or logical action paths through Artin-like Projection and fractal unfolding.
 
-Built on Rust for type safety and zero-cost abstractions.
+---
 
-### The Control Loop (Revised)
+## 🔄 Workflow: The Generation Loop
+Evolver's execution no longer relies on external LLM logits. The process is entirely endogenous:
 
-* **Generate:** LLM outputs raw logits $z$.
-* **Verify:** STP Engine calculates Energy $E(z)$. If $E=0$, emit.
-* **Propose:** If $E>0$, Intuition Engine predicts a target region $\vec{b}_{init}$.
-* **Search:** VAPO performs fine-grained discrete search around $\vec{b}_{init}$ to find $\vec{b}^*$.
-* **Project:**
+1.  **Inception:** User inputs the Context (string).
+2.  **Seeding:** Calculates Hash(Context) as the initial kinetic energy acting on the Identity Soul.
+$$S_0 = S_{id} \circ \text{Evolve}(\text{Seed})$$
+3.  **Optimization:** The Will takes control. It continuously applies algebraic perturbations to 
+$$S_t$$
+ until it finds a state 
+$$S^*$$
+ where the materialized logical path satisfies the zero-energy constraint.
+$$\text{Minimize } E_{STP}(\text{Materialize}(S)) \implies S^*$$
+4.  **Materialization:** Unfolds the perfect algebraic state 
+$$S^*$$
+ into a token sequence.
+$$\text{Path} = \text{Project}(S^*)$$
 
-$$
-z_{final} = z + W \cdot \vec{b}^*
-$$
+---
 
-* **Learn:** The trajectory is saved to train the Intuition Engine.
+## 🛠️ Tech Stack & Features
+* **Language:** Rust (Focusing on zero-cost abstractions and type safety)
+* **Algebra:** `num-bigint` (Handling class group operations for large integers)
+* **Optimization:** VAPO (Proprietary discrete optimization algorithm)
+* **Verification:** STP Engine (Logic-physics engine based on Semi-Tensor Product)
+* **Interface:** PyO3 (Providing Python bindings for easy integration)
 
-$$
-(\text{Context}, \vec{b}^*)
-$$
+## 📦 Quick Start (Python API)
+Evolver is designed as a high-performance Python extension module.
 
-## 🚀 Quick Start
-
-### Dependencies
-
-* Rust (1.70+)
-* `serde`, `rand`, `num-integer`
-
-### Run Demo
-
-The main program (`src/main.rs`) simulates the "Proposer-Optimizer" dynamic:
-
+### Compilation
 ```bash
-cargo run
+# Requires Rust toolchain installed
+maturin develop --release
 ```
 
-### Expected Output
+### Usage Example
+```python
+from new_evolver import PyEvolver
 
-```text
-🐱 New Evolver System Initializing...
---------------------------------------------------
-[Init] STP Context loaded.
-[Init] Intuition Engine (Mock) loaded.
+# 1. Initialize the engine
+# p=409 (Prime base), k=19 (Decision tree depth)
+engine = PyEvolver(409, 19)
 
-📝 Mission: Prove that the sum of two Odd numbers is Even.
-...
-⚠️  [Step 3] Generating inference step...
-   -> Raw Generator intent: Define 'sum' as Odd.
-   -> STP Check: VIOLATION (Energy > 0).
+# 2. Input context (e.g., a mathematical proposition)
+context = "Prove that the sum of two Odd numbers is Even."
 
-🧠 [Intuition] Transformer proposing bias region: Sector 4.
-🛡️ [VAPO] Optimizing local perturbation...
-   -> Found correction vector [-1, 0, 1...]
-   -> Energy dropped to 0.0.
+# 3. Align
+# This step involves the full process of evolution, search, and materialization.
+# Returns: An STP-verified logical path (Token IDs) with zero energy.
+path = engine.align(context)
 
-✅ [Result] Action Corrected: Define 'sum' as Even.
+print(f"Generated Logic Path: {path}")
+# Output: [3, 7, 6, ...] (Corresponding to: Define n: Odd, Define m: Odd, Apply Add...)
 ```
+
+---
+
+## 🧠 Theoretical Background
+### Why move from Algebra to Logic?
+Traditional AI attempts to simulate logical reasoning through trained neural networks (probabilistic approximation). Evolver takes the opposite approach: we construct an algebraic space (Class Groups) isomorphic to logical structures. In this space, Truth is the stable state with the lowest energy.
+
+We don't train models to "guess" answers; we use optimization algorithms to let the answers "emerge" from the algebraic structure.
+
+* **Semi-Tensor Product (STP):** Provides the physical laws of conservation for logic.
+* **Class Groups:** Provide a sufficiently complex and continuous search space (manifold) allowing discrete logic to be optimized.
+
+---
 
 ## 📜 License
-
 M-Patek PROPRIETARY LICENSE Copyright © 2025 M-Patek.
+See the LICENSE file for details.
