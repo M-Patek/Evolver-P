@@ -13,11 +13,9 @@ use crate::will::perturber::EnergyEvaluator;
 use crate::will::optimizer;
 
 // -------------------------------------------------------------------------
-// 模块声明
+// 模块声明 (已清理无用模块)
 // -------------------------------------------------------------------------
-pub mod control;
 pub mod dsl;
-pub mod interface;
 pub mod soul;
 pub mod body {
     pub mod topology;
@@ -29,6 +27,8 @@ pub mod will {
     pub mod optimizer;
     pub mod perturber;
 }
+
+// 注意：control 和 interface 模块已被移除，因为它们属于旧架构。
 
 // -------------------------------------------------------------------------
 // 辅助结构体：能量评估桥接器
@@ -74,14 +74,10 @@ impl<'a> EnergyEvaluator for StpBridge<'a> {
 }
 
 // -------------------------------------------------------------------------
-// [Task 4.3] PyEvolver (原 AUEEngine)
+// PyEvolver (API 暴露)
 // -------------------------------------------------------------------------
-/// Evolver 的 Python 接口类。
-/// 对外隐藏了复杂的群运算 (Soul) 和 矩阵逻辑 (STP)，
-/// 只暴露极其简单的初始化和对齐接口。
 #[pyclass]
 pub struct PyEvolver {
-    // 内部状态不对 Python 可见
     soul: ClassGroupElement, 
     body: VPuNNConfig,
     stp: RefCell<STPContext>, 
@@ -89,19 +85,12 @@ pub struct PyEvolver {
 
 #[pymethods]
 impl PyEvolver {
-    /// 构造函数
-    /// 
-    /// # 参数
-    /// * `p` (u64): 投影基底 (Projection Base)，通常是一个大素数 (如 409)。
-    /// * `k` (usize): 神经网络/决策树的深度 (Depth)，决定了逻辑的复杂度 (如 19)。
     #[new]
     fn new(p: u64, k: usize) -> Self {
         println!("🐱 PyEvolver Initializing with p={}, k={}...", p, k);
 
-        // 1. 初始化 STP 上下文 (逻辑裁判)
         let mut stp_ctx = STPContext::new();
-        
-        // 预设环境：n=Odd, m=Odd (模拟用户输入解析后的状态)
+        // 预设环境：n=Odd, m=Odd
         let setup_n = ProofAction::Define { 
             symbol: "n".to_string(), 
             hierarchy_path: vec!["Number".to_string(), "Integer".to_string(), "Odd".to_string()] 
@@ -113,14 +102,8 @@ impl PyEvolver {
         stp_ctx.calculate_energy(&setup_n);
         stp_ctx.calculate_energy(&setup_m);
 
-        // 2. 初始化灵魂 (代数核心)
-        // 使用判别式 Delta = -23，这是最小的类数为 3 的虚二次域判别式之一。
-        // 它足够简单，适合作为 demo 的“出厂设置”。
         let discriminant = BigInt::from(-23);
         let identity_soul = ClassGroupElement::identity(&discriminant);
-
-        // 3. 初始化肉体 (拓扑配置)
-        // 使用用户传入的参数 p 和 k
         let body_config = VPuNNConfig::new(k, p);
 
         PyEvolver {
@@ -130,37 +113,18 @@ impl PyEvolver {
         }
     }
 
-    /// 核心接口：对齐 (Align)
-    ///
-    /// 接收自然语言上下文，返回修正后的逻辑路径。
-    /// Python 端不需要知道什么是 ClassGroupElement，只需要拿到结果列表。
-    ///
-    /// # 参数
-    /// * `context` (str): 用户的输入上下文 (Prompt)。
-    ///
-    /// # 返回
-    /// * `List[int]`: 逻辑证明路径 (Proof Path)。
     fn align(&mut self, context: String) -> Vec<u64> {
-        // 1. 感知：将上下文哈希化为种子
         let mut hasher = DefaultHasher::new();
         context.hash(&mut hasher);
         let seed = hasher.finish();
         
-        // 2. 直觉：灵魂演化
-        // 这一步是确定性的：相同的上下文永远产生相同的初始直觉。
         self.soul = self.soul.evolve(seed);
 
-        // 3. 意志：VAPO 优化
-        // 在代数空间中搜索能量为 0 的状态。
-        // 这里使用了 RefCell 的借用机制来连接 STP。
         let evaluator = StpBridge { context: &self.stp };
         let optimized_soul = optimizer::optimize(&self.soul, &evaluator);
 
-        // 4. 承诺：更新状态
         self.soul = optimized_soul;
         
-        // 5. 行动：投影回现实
-        // 将抽象的代数对象转化为具体的数字路径
         let materialize = |state: &ClassGroupElement| -> Vec<u64> {
             let extract_u64 = |n: &BigInt| -> u64 {
                 let (_sign, bytes) = n.to_bytes_le();
@@ -179,16 +143,12 @@ impl PyEvolver {
             ]
         };
 
-        let proof_path = materialize(&self.soul);
-        
-        // 返回纯粹的数据给 Python，隐藏背后的代数复杂性
-        proof_path
+        materialize(&self.soul)
     }
 }
 
 #[pymodule]
 fn new_evolver(_py: Python, m: &PyModule) -> PyResult<()> {
-    // 注册 PyEvolver 类
     m.add_class::<PyEvolver>()?;
     Ok(())
 }
