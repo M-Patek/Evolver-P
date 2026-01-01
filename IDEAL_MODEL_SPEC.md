@@ -39,14 +39,29 @@ $$\mathcal{P} = \{ [\mathfrak{p}_1], [\mathfrak{p}_1]^{-1}, \dots, [\mathfrak{p}
 
 **Metric:** The distance $d(S_1, S_2)$ is defined as the Word Metric relative to $\mathcal{P}$ — the length of the shortest path between $S_1$ and $S_2$ on the graph.
 
-### 1.3 State Evolution Dynamics
+### 1.3 State Evolution Dynamics (Decoupled)
 
-Evolution is a Random Walk or Directed Search on $\mathcal{G}$.
+To preserve the local metric structure required for optimization (Lipschitz continuity), we explicitly decouple the Search Dynamics from the Time Dynamics.
 
-$$S_{t+1} = S_t^2 \circ \epsilon_t$$
+#### 1. Search Dynamics (The Will's Walk)
 
-* **Spin ($S^2$):** A deterministic jump in the graph, providing mixing (Time evolution).
-* **Perturbation ($\epsilon_t \in \mathcal{P}$):** A single step along an edge of the Cayley Graph, chosen by the Will (Optimization step).
+The Will operates on the static Cayley Graph. It moves from neighbor to neighbor to find the optimal seed.
+
+$$S_{k+1} = S_k \circ \epsilon_k$$
+
+$S_k$: The current candidate seed at search step $k$.
+
+$\epsilon_k \in \mathcal{P}$: A perturbation (generator) chosen by the VAPO optimizer.
+
+#### 2. Time Dynamics (The Observation)
+
+Once a candidate seed $S$ is selected (or evaluated), it is "unfolded" in time to generate the logical path. This is the VDF (Verifiable Delay Function) aspect.
+
+$$O_0 = S$$
+
+$$O_{t+1} = O_t^2$$
+
+The logical path is derived from the orbit $O_0, O_1, \dots, O_T$.
 
 ---
 
@@ -72,10 +87,10 @@ The efficacy of VAPO relies strictly on the Lipschitz continuity of the Projecti
 
 **Search Strategy:**
 
-1.  **Expansion:** Generate neighbors
+* **Expansion:** Generate neighbors
 $$\mathcal{N}(S_t) = \{ S_t \circ \epsilon \mid \epsilon \in \mathcal{P} \}$$
-2.  **Evaluation:** Compute energy $E$ for all neighbors.
-3.  **Selection:** Move to the neighbor with the lowest energy (Greedy Hill Climbing on the Graph).
+* **Evaluation:** Compute energy $E$ for all neighbors.
+* **Selection:** Move to the neighbor with the lowest energy (Greedy Hill Climbing on the Graph).
 
 ---
 
@@ -98,8 +113,7 @@ Where:
 * $k$ is the sequence index, introducing linear variation derived from the state itself.
 
 **Why LCP?**
-Unlike a Hash function, LCP is locally continuous. 
-If $S' = S \circ \epsilon$ where $\epsilon$ is a small norm prime, then $|a(S') - a(S)|$ and $|b(S') - b(S)|$ are statistically likely to be small.
+Unlike a Hash function, LCP is locally continuous. If $S' = S \circ \epsilon$ where $\epsilon$ is a small norm prime, then $|a(S') - a(S)|$ and $|b(S') - b(S)|$ are statistically likely to be small.
 
 $$\implies |\Psi(S') - \Psi(S)| \text{ is small.}$$
 
@@ -132,6 +146,7 @@ $$S_0 \xrightarrow{\epsilon_1} S_1 \dots \xrightarrow{\epsilon_k} S_{final}$$
 ## 5. Conclusion
 
 HTP is re-specified as:
+
 * **Soul:** A node in the Class Group Cayley Graph.
 * **Will:** An agent performing heuristic search on this graph utilizing the Lipschitz continuity of LCP.
 * **Body:** The linear congruence projection of the node into logical space.
