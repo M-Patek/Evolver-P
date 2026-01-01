@@ -1,123 +1,164 @@
 use pyo3::prelude::*;
+use pyo3::exceptions::PyValueError;
+use num_bigint::{BigInt, Sign};
+use num_traits::{Num, Zero};
 use crate::soul::algebra::ClassGroupElement;
 use crate::will::optimizer::VapoOptimizer;
 use crate::body::decoder::BodyProjector;
 use crate::body::adapter::SemanticAdapter;
 use crate::dsl::stp_bridge::STPContext;
+use crate::will::perturber::EnergyEvaluator;
+use crate::dsl::schema; // 引入 schema 定义
 
 pub mod soul;
 pub mod will;
 pub mod body;
 pub mod dsl;
 
-/// Python 模块入口
+// 定义一个简单的 EnergyEvaluator 实现
+struct STPEvaluator;
+impl EnergyEvaluator for STPEvaluator {
+    fn evaluate(&self, actions: &[crate::body::adapter::ProofAction]) -> f64 {
+        let mut stp = STPContext::new();
+        stp.calculate_energy(actions)
+    }
+}
+
+/// Python 暴露的 ProofBundle 包装器
+/// 对应 src/dsl/schema.rs 中的标准定义
+#[pyclass(name = "ProofBundle")]
+#[derive(Clone)]
+pub struct PyProofBundle {
+    // 内部持有 schema 中的标准结构，或者直接映射字段
+    // 为了 PyO3 的易用性，这里直接展开字段，但保证与 schema.rs 1:1 对应
+    
+    #[pyo3(get)]
+    pub context_hash: String,
+    
+    #[pyo3(get)]
+    pub discriminant_hex: String,
+    
+    #[pyo3(get)]
+    pub start_seed_a: String,
+    
+    #[pyo3(get)]
+    pub final_state_a: String,
+    
+    #[pyo3(get)]
+    pub perturbation_trace: Vec<usize>,
+    
+    #[pyo3(get)]
+    pub logic_path: Vec<String>,
+    
+    #[pyo3(get)]
+    pub energy: f64,
+}
+
+impl From<schema::ProofBundle> for PyProofBundle {
+    fn from(b: schema::ProofBundle) -> Self {
+        PyProofBundle {
+            context_hash: b.context_hash,
+            discriminant_hex: b.discriminant_hex,
+            start_seed_a: b.start_seed_a,
+            final_state_a: b.final_state_a,
+            perturbation_trace: b.perturbation_trace,
+            logic_path: b.logic_path,
+            energy: b.energy,
+        }
+    }
+}
+
 #[pymodule]
 fn new_evolver(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<PyEvolver>()?;
+    m.add_class::<PyProofBundle>()?; 
     Ok(())
 }
 
-/// Evolver 引擎的 Python 包装类
-///
-/// 这是系统的主控制器，负责协调 Soul (代数), Will (优化), Body (投影) 和 Logic (验证) 的工作流。
 #[pyclass]
 struct PyEvolver {
-    // 判别式参数 P (用于代数群构造)
-    p: u64,
-    // 投影参数 K (用于控制投影维度/路径长度)
+    discriminant: BigInt,
     k: usize,
 }
 
 #[pymethods]
 impl PyEvolver {
     #[new]
-    fn new(p: u64, k: usize) -> Self {
-        PyEvolver { p, k }
+    fn new(discriminant_hex: String, k: usize) -> PyResult<Self> {
+        let delta = BigInt::from_str_radix(&discriminant_hex, 16)
+            .map_err(|e| PyValueError::new_err(format!("Invalid hex discriminant: {}", e)))?;
+
+        if delta >= BigInt::zero() {
+            return Err(PyValueError::new_err("Discriminant must be negative."));
+        }
+        
+        let rem = &delta % 4;
+        let rem_val = if rem < BigInt::zero() { rem + 4 } else { rem };
+        if rem_val != BigInt::zero() && rem_val != BigInt::from(1) {
+             return Err(PyValueError::new_err("Discriminant must be 0 or 1 mod 4."));
+        }
+
+        Ok(PyEvolver { 
+            discriminant: delta, 
+            k 
+        })
     }
 
     /// 对齐逻辑 (Align Logic)
-    ///
-    /// 执行核心的演化-优化循环。
-    /// 1. 从上下文中通过 Hash 生成代数种子。
-    /// 2. 使用 VAPO 算法在凯莱图上搜索。
-    /// 3. 将代数状态投影为数字序列，再物化为逻辑动作。
-    /// 4. 通过 STP 引擎计算逻辑违规能量。
-    /// 5. 最小化能量，直到找到真理 (Energy = 0)。
-    ///
-    /// # 参数
-    /// * `context`: 用户输入的自然语言上下文 (字符串)
-    ///
-    /// # 返回
-    /// * `Vec<String>`: 生成的逻辑证明步骤列表
-    fn align(&self, context: String) -> PyResult<Vec<String>> {
-        // --- 1. Inception (起源) ---
-        // 初始化代数种子 (Soul)
-        let seed = ClassGroupElement::from_context(&context, self.p);
+    fn align(&self, context: String) -> PyResult<PyProofBundle> {
+        // 1. Inception (SHA-256 Hash Alignment)
+        let (seed, ctx_hash) = ClassGroupElement::from_context(&context, &self.discriminant);
+        let start_seed_clone = seed.clone();
         
-        // --- 2. The Will (意志) ---
-        // 初始化 VAPO 优化器，赋予它初始状态
+        // 2. The Will (Chaotic Deterministic Search)
         let mut optimizer = VapoOptimizer::new(seed);
         
         let mut best_energy = f64::MAX;
         let mut best_path_digits = Vec::new();
-        let mut best_actions = Vec::new(); 
+        let mut best_actions_strings = Vec::new();
+        let mut best_state = start_seed_clone.clone();
         
-        // 搜索参数
-        let max_iterations = 1000;
+        let p_projection = 997; 
+        let evaluator = STPEvaluator;
+        let max_iterations = 50;
 
-        // --- 3. Evolution Loop (演化循环) ---
+        // 3. Evolution Loop
         for _ in 0..max_iterations {
-            // A. Perturbation (扰动/搜索)
-            // 意志在图上移动一步，寻找新的候选状态
-            let current_state = optimizer.perturb();
+            let (candidate_state, gen_idx) = optimizer.perturb();
             
-            // B. Materialization (物化/时间展开)
-            // 根据最新的规范，这里隐含了时间维度的展开 (Time Evolution)。
-            // BodyProjector 将代数状态投影为一串数字。
-            let path_digits = BodyProjector::project(&current_state, self.k, self.p);
-
-            // C. Semantic Adaptation (语义适配)
-            // [关键修复]：整个数字序列被转换为逻辑动作，不再是仅取首位。
+            let path_digits = BodyProjector::project(&candidate_state, self.k, p_projection);
             let logic_actions = SemanticAdapter::materialize(&path_digits);
+            let energy = evaluator.evaluate(&logic_actions);
 
-            // D. Judgement (审判/能量计算)
-            // STP 引擎计算这组逻辑动作的自洽性。
-            let mut stp = STPContext::new();
-            let energy = stp.calculate_energy(&logic_actions);
-
-            // E. Selection (自然选择)
-            // 如果新状态的能量更低（更接近真理），或者基于模拟退火概率接受
             if energy < best_energy {
                 best_energy = energy;
-                best_path_digits = path_digits.clone();
-                best_actions = logic_actions.clone();
+                best_path_digits = path_digits;
+                best_state = candidate_state.clone();
+                best_actions_strings = logic_actions.iter().map(|a| format!("{:?}", a)).collect();
                 
-                // 告诉优化器接受这个位置作为新的搜索基点
-                optimizer.accept(current_state.clone());
+                optimizer.accept(candidate_state, gen_idx);
+            } else {
+                optimizer.reject();
             }
 
-            // F. Convergence (收敛)
-            // 如果能量为 0，说明找到了绝对真理，停止搜索。
             if best_energy == 0.0 {
                 break;
             }
         }
 
-        // --- 4. Revelation (启示/输出) ---
-        
-        // 如果搜索失败 (能量仍 > 0)，我们可以选择返回错误或返回“最可信”的路径。
-        // 这里返回找到的最佳路径，并在开头加上能量标记以便调试。
-        let mut result_strings: Vec<String> = Vec::new();
-        
-        // (可选) 添加元数据
-        result_strings.push(format!("# Final Energy: {:.1}", best_energy));
-        result_strings.push(format!("# Algebraic Path: {:?}", best_path_digits));
+        // 4. Revelation
+        // 构建标准 Schema 定义的 Bundle
+        let bundle = schema::ProofBundle {
+            context_hash: ctx_hash, // 这里是 algebra.rs 返回的 SHA-256 Hex
+            discriminant_hex: self.discriminant.to_str_radix(16),
+            start_seed_a: start_seed_clone.a.to_string(),
+            final_state_a: best_state.a.to_string(),
+            perturbation_trace: optimizer.trace.clone(),
+            logic_path: best_actions_strings,
+            energy: best_energy,
+        };
 
-        // 添加具体的逻辑步骤
-        for action in best_actions {
-            result_strings.push(format!("{:?}", action));
-        }
-
-        Ok(result_strings)
+        // 转换为 Python 包装类
+        Ok(PyProofBundle::from(bundle))
     }
 }
