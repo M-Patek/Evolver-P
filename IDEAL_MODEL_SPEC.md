@@ -17,7 +17,9 @@ The system transitions from a "continuous manifold approximation" to a rigorous 
 
 The core state space is not a continuous manifold, but a finite discrete Abelian group: the Ideal Class Group $Cl(\Delta)$.
 
-**Discriminant:** $$\Delta < 0$$
+**Discriminant:**
+
+$$\Delta < 0$$
 
 and
 
@@ -113,7 +115,8 @@ Where:
 * $k$ is the sequence index, introducing linear variation derived from the state itself.
 
 **Why LCP?**
-Unlike a Hash function, LCP is locally continuous. If $S' = S \circ \epsilon$ where $\epsilon$ is a small norm prime, then $|a(S') - a(S)|$ and $|b(S') - b(S)|$ are statistically likely to be small.
+Unlike a Hash function, LCP is locally continuous.
+If $S' = S \circ \epsilon$ where $\epsilon$ is a small norm prime, then $|a(S') - a(S)|$ and $|b(S') - b(S)|$ are statistically likely to be small.
 
 $$\implies |\Psi(S') - \Psi(S)| \text{ is small.}$$
 
@@ -146,7 +149,6 @@ $$S_0 \xrightarrow{\epsilon_1} S_1 \dots \xrightarrow{\epsilon_k} S_{final}$$
 ## 5. Conclusion
 
 HTP is re-specified as:
-
 * **Soul:** A node in the Class Group Cayley Graph.
 * **Will:** An agent performing heuristic search on this graph utilizing the Lipschitz continuity of LCP.
 * **Body:** The linear congruence projection of the node into logical space.
