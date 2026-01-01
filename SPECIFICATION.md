@@ -1,23 +1,29 @@
 # HYPER-TENSOR PROTOCOL (HTP): Technical Specification
 
-"Time is Evolution, Space is Projection."
+"Time is Evolution, Space is Projection, Context is Gravity."
+
+---
 
 ## 1. Mathematical Preliminaries
 
-### 1.1 Class Group Parameters & The Unknown Order
+### 1.1 Contextual Universe Generation (The Physical Binding)
+
+To ensure that any generated proof is intrinsically bound to the specific problem instance, we define the Contextual Binding Principle.
 
 **Discriminant Generation:**
-Define the discriminant $\Delta$ as a hash-derived parameter:
+The physical constants of the algebraic universe are not chosen arbitrarily; they are derived deterministically from the user's intent.
 
 $$\Delta = -M$$
 
-where $M$ is a large prime number (e.g., 2048-bit) derived deterministically from the ContextHash satisfying $M \equiv 3 \pmod 4$.
+where $M$ is a large prime number satisfying $M \equiv 3 \pmod 4$, derived via:
 
-**The Open Secret:**
-While $\Delta$ is public, the group structure of $Cl(\Delta)$ remains opaque. Specifically, the Class Number $h(\Delta)$ (the order of the group) is computationally infeasible to calculate for large discriminants (Cohen-Lenstra Heuristics).
+$$M = \text{NextPrime}(\text{SHA256}(\text{ContextString}))$$
 
-**Security Consequence:**
-The hardness of computing $h(\Delta)$ ensures that the group acts as a Group of Unknown Order. This prevents attackers (and the generator) from using Lagrange's Theorem ($g^{|G|} = 1$) to compute shortcuts for exponentiation.
+**Implication:**
+
+* **Unique Universe:** Every distinct logical problem (Context) spawns a unique Ideal Class Group $Cl(\Delta)$.
+* **Topology Shift:** Changing a single word in the prompt changes $\Delta$, which completely reshuffles the Cayley Graph structure, edge weights, and cycle properties.
+* **Anti-Replay:** A path valid in the "Even Sum Universe" is topologically nonexistent or invalid in the "Odd Sum Universe".
 
 ### 1.2 Algebraic Dynamics (Dynamical Decoupling)
 
@@ -39,11 +45,6 @@ The logical projection $\Psi$ is then applied to this temporal sequence:
 
 $$\text{Path} = [ \Psi(S_0), \Psi(S_1), \dots, \Psi(S_T) ]$$
 
-**Why this distinction?**
-
-* **Search** must be locally continuous (Small $\epsilon \implies$ Small $\Delta E$).
-* **Time** must be chaotic and irreversible (Squaring prevents forgery).
-
 ---
 
 ## 2. Affine Evolution & Optimization (The Soul & Will)
@@ -61,20 +62,11 @@ Implemented in `src/will/optimizer.rs`.
 
 $$S_{new} = S_{seed} \circ \epsilon$$
 
-* **Evaluation:** To evaluate $S_{new}$, the system momentarily "unfolds" the time dimension (computes $S_{new}^2, S_{new}^4 \dots$) to check if the resulting logical path satisfies the STP constraints.
-* **Dynamics:** The optimizer searches for a Seed $S^*$ such that its temporal unfolding yields a Zero-Energy logic path.
+* **Evaluation:** The system momentarily "unfolds" the time dimension. Crucially, the Energy Function $E(S)$ is Context-Dependent.
 
-### 2.3 Materialization (The Body's Projection)
+$$E(S) = E_{STP}(\text{Project}(S) \mid \text{ContextConstraints})$$
 
-Implemented in `src/body/decoder.rs` and `src/body/adapter.rs`.
-
-* **Input:** The optimized seed $S^*$.
-* **Process:**
-    1.  Generate algebraic orbit: 
-        $$S_0 = S^*, S_1 = S_0^2, \dots, S_k = S_{k-1}^2$$
-    2.  Apply Affine Projection $\Psi$ to each state in the orbit.
-    3.  Apply Semantic Adapter to convert the sequence of digits into a Proof.
-* **Output:** A sequence of logical action IDs $d_1, d_2, \dots, d_k$.
+* **Dynamics:** The optimizer searches for a Seed $S^*$ such that its temporal unfolding yields a Zero-Energy logic path relative to the specific problem context.
 
 ---
 
@@ -85,8 +77,6 @@ Implemented in `src/body/decoder.rs` and `src/body/adapter.rs`.
 Define a mapping $\Psi$ from the algebraic state $S$ to a logical digit $d$:
 
 $$\Psi(S) = (a + b) \pmod{P}$$
-
-*(Note: The sequence index $k$ previously used in $\Psi_k$ is now naturally handled by the Time Evolution $S \to S^2$, so the projection function itself can remain static.)*
 
 This projection preserves the Lipschitz continuity of the algebraic manifold locally, allowing local search algorithms (like VAPO) to function effectively on the Seed state.
 
@@ -100,9 +90,11 @@ $$E_{STP}(\text{Materialize}(S^*)) == 0$$
 
 ## 4. Proof of Will & Security Model
 
-### 4.1 The Security Goal: Unforgeability
+### 4.1 The Security Goal: Semantic Proof of Reasoning
 
-The goal of HTP security is not to hide the logic, but to prove that the logic was generated through computational effort (Search) rather than hallucinated or pre-computed via shortcuts.
+We redefine "Reasoning" strictly as: The successful traversal of a Context-Specific Graph to a Context-Specific Zero-Energy State.
+
+$$\text{Reasoning} \iff (\text{Context} \to \Delta) \land (\text{Path} \in \text{Cayley}(\Delta)) \land (E_{STP}(\text{Path} \mid \text{Context}) = 0)$$
 
 ### 4.2 Proof Bundle (The Artifact)
 
@@ -110,32 +102,31 @@ The output of the system is a verifiable artifact:
 
 $$\text{ProofBundle} := \{ \mathbf{H}_{ctx}, S_{final}, \text{Trace}_{\epsilon} \}$$
 
-* $\mathbf{H}_{ctx}$: Context Hash (anchors $\Delta$).
+* $\mathbf{H}_{ctx}$: Context Hash (Anchors the Universe $\Delta$).
 * $S_{final}$: The result seed state.
-* $\text{Trace}_{\epsilon}$: The sequence of perturbations $[\epsilon_1, \epsilon_2, \dots, \epsilon_k]$ applied to reach the seed.
+* $\text{Trace}_{\epsilon}$: The sequence of perturbations applied to reach the seed.
 
 ### 4.3 Verification (Replay)
 
 The Verifier performs the following steps:
 
-1.  **Derive:** Recompute $\Delta$ from $\mathbf{H}_{ctx}$.
+1.  **Derive Universe:** Recompute $\Delta$ from $\mathbf{H}_{ctx}$. If $\Delta$ does not match the problem, the proof is invalid (Wrong Universe).
 2.  **Replay Search:** Starting from Identity, apply the perturbations to reconstruct the Seed $S^*$.
-3.  **Replay Time:** Unfold the time orbit 
-    $$S^* \to (S^*)^2 \dots$$
-4.  **Check:** Verify that the resulting path yields $E_{STP} == 0$.
+3.  **Replay Time:** Unfold the time orbit $S^* \to (S^*)^2 \dots$
+4.  **Check Semantics:** Verify that the resulting path yields $E_{STP} == 0$ given the original Context.
 
-### 4.4 Why this is "Secure"? (The Hardness Assumptions)
+### 4.4 Hardness Assumptions (The Trinity)
 
-* **Search Hardness:** Finding a seed $S^*$ that unfolds into a valid logic path is a constrained satisfaction problem on a chaotic graph.
-* **Time Hardness:** Even if one knows the logic path, reverse-engineering the algebraic seed $S^*$ that generates it is equivalent to inverting the projection and the squaring (root extraction), both of which are hard in unknown order groups.
+* **Context Hardness (Semantic Binding):** Since $\Delta$ is derived from the prompt, pre-computing generic "logic paths" is impossible. A solver must enter the specific algebraic graph defined by the question.
+* **Search Hardness (Computational Effort):** Finding a seed $S^*$ in $Cl(\Delta)$ that satisfies the logical constraints is a stochastic search problem on a chaotic graph.
+* **Time Hardness (Sequentiality):** Squaring is a VDF in unknown order groups, preventing parallel forgery of the timeline.
 
 ---
 
 ## 5. Conclusion
 
-The HTP v1.5 specification defines a Decoupled Proof-of-Will protocol:
+The HTP v1.6 specification defines a Doubly-Bound Proof-of-Will protocol:
 
-* **Algebra:** Unknown Order Class Groups ($Cl(\Delta)$).
+* **Algebra:** Context-Dependent Unknown Order Class Groups ($Cl(\Delta_{ctx})$).
 * **Search:** Local traversal on the Cayley Graph (Will).
-* **Time:** Deterministic VDF expansion (Squaring).
-* **Truth:** A Seed discovered by the Will that withstands the test of Time.
+* **Truth:** A Seed discovered by the Will that withstands the test of Time and Contextual Semantics.
