@@ -2,99 +2,86 @@ use num_bigint::BigInt;
 use num_traits::{Zero, Signed};
 use crate::soul::algebra::ClassGroupElement;
 use crate::will::perturber::{self, EnergyEvaluator};
-use crate::body::topology::VPuNNConfig; // [Added] 需要配置信息
-use crate::body::decoder; // [Added] 使用统一的解码器
+use std::hash::{Hash, Hasher};
+use std::collections::hash_map::DefaultHasher;
+use rand::{Rng, SeedableRng};
+use rand::rngs::StdRng;
 
-/// VAPO (Valuation-Adaptive Perturbation Optimization) 核心循环
-///
-/// [Architecture Fix]:
-/// 移除了本地硬编码的 `materialize_path`，改为注入 `VPuNNConfig` 并调用 `body::decoder`。
-/// 这确保了“Will”(优化器) 看到的风景与“Body”(最终输出) 是完全一致的。
-/// 这修复了“投影断裂”问题。
-pub fn optimize(
-    start_state: &ClassGroupElement,
-    config: &VPuNNConfig, // [Added] 注入拓扑配置
-    evaluator: &impl EnergyEvaluator
-) -> ClassGroupElement {
-    // 1. 自动提取判别式
-    let four = BigInt::from(4);
-    let delta = (&start_state.b * &start_state.b) - (&four * &start_state.a * &start_state.c);
-
-    // 2. 准备生成元集 (The Generator Set)
-    let perturbation_count = 50;
-    let perturbations = perturber::generate_perturbations(&delta, perturbation_count);
-
-    let mut current_state = start_state.clone();
-    // 使用统一的投影逻辑计算能量
-    let mut current_energy = evaluate_state(&current_state, config, evaluator);
-    
-    if current_energy.abs() < 1e-6 {
-        return current_state;
-    }
-
-    let max_iterations = 100;
-
-    // 3. 搜索循环 (The Graph Walk)
-    for _iter in 0..max_iterations {
-        // [Task 3.4] 生成元子集调度 (Generator Subset Scheduling)
-        // 随着迭代，收缩到 Fine (小范数) 生成元，进行局部 Lipschitz 优化
-        let progress = _iter as f64 / max_iterations as f64;
-        let window_ratio = 1.0 - (0.9 * progress); 
-        let active_count = (perturbations.len() as f64 * window_ratio).ceil() as usize;
-        let active_count = active_count.max(3).min(perturbations.len());
-        
-        let active_perturbations = &perturbations[0..active_count];
-
-        let mut best_neighbor = current_state.clone();
-        let mut min_energy = current_energy;
-        let mut found_better = false;
-
-        // 遍历邻域
-        for eps in active_perturbations {
-            // 正向边
-            let neighbor_pos = current_state.compose(eps);
-            let energy_pos = evaluate_state(&neighbor_pos, config, evaluator);
-
-            if energy_pos < min_energy {
-                min_energy = energy_pos;
-                best_neighbor = neighbor_pos;
-                found_better = true;
-            }
-
-            // 逆向边
-            let inverse_eps = eps.inverse();
-            let neighbor_neg = current_state.compose(&inverse_eps);
-            let energy_neg = evaluate_state(&neighbor_neg, config, evaluator);
-
-            if energy_neg < min_energy {
-                min_energy = energy_neg;
-                best_neighbor = neighbor_neg; 
-                found_better = true;
-            }
-        }
-
-        if min_energy.abs() < 1e-6 {
-            return best_neighbor;
-        }
-
-        if found_better {
-            current_state = best_neighbor;
-            current_energy = min_energy;
-        } else {
-            break;
-        }
-    }
-
-    current_state
+/// VAPO 优化器结构体
+/// 负责在凯莱图上进行有状态的搜索，并记录“意志的轨迹”。
+pub struct VapoOptimizer {
+    pub current_seed: ClassGroupElement,
+    pub trace: Vec<usize>, // 记录选择的 generator 索引，用于 Proof 重放
+    generators: Vec<ClassGroupElement>, // 缓存生成元
+    iteration_count: usize,
 }
 
-/// 辅助函数：使用标准解码器计算状态能量
-fn evaluate_state(
-    state: &ClassGroupElement, 
-    config: &VPuNNConfig, 
-    evaluator: &impl EnergyEvaluator
-) -> f64 {
-    // 调用 body 模块的标准物质化函数，而不是本地的 hack
-    let path = decoder::materialize_path(state, config);
-    evaluator.evaluate(&path)
+impl VapoOptimizer {
+    /// 初始化优化器
+    pub fn new(start_seed: ClassGroupElement) -> Self {
+        // 在初始化时预生成所有扰动算子 (Generators)
+        // 生产环境 VAPO 会使用更复杂的生成策略
+        let delta = start_seed.discriminant();
+        // 生成足够多的扰动算子以覆盖搜索空间
+        let generators = perturber::generate_perturbations(&delta, 50);
+
+        Self {
+            current_seed: start_seed,
+            trace: Vec::new(),
+            generators,
+            iteration_count: 0,
+        }
+    }
+
+    /// 扰动 (Perturb): 意志的决策
+    /// 
+    /// [Hash Strategy Alignment]:
+    /// 这里实现了 "Chaotic Determinism" (混沌决定论)。
+    /// 意志的下一步不仅仅是随机的，而是由当前的代数状态(Soul)决定的。
+    /// 我们对当前的 (a, b) 进行哈希，作为 RNG 的种子。
+    /// 
+    /// 这样做的目的是：
+    /// 1. **可重放性**: 如果验证者重放 Trace，每一步的状态都确定，虽然验证不需要重放 RNG，但调试需要。
+    /// 2. **结构耦合**: 搜索方向内在于代数结构本身。
+    pub fn perturb(&mut self) -> (ClassGroupElement, usize) {
+        let gen_count = self.generators.len();
+        if gen_count == 0 {
+            return (self.current_seed.clone(), 0);
+        }
+
+        // 1. 从当前状态提取熵 (State Hash)
+        // 注意：这里使用 DefaultHasher 做内部状态哈希是可以的，
+        // 因为这不涉及 Proof 的抗碰撞性，只涉及搜索路径的选择策略。
+        // 但为了严谨，我们混合 iteration_count 防止死循环。
+        let mut hasher = DefaultHasher::new();
+        self.current_seed.a.hash(&mut hasher);
+        self.current_seed.b.hash(&mut hasher);
+        self.iteration_count.hash(&mut hasher);
+        let state_hash = hasher.finish();
+
+        // 2. 播种 RNG (Seed PRNG)
+        let mut rng = StdRng::seed_from_u64(state_hash);
+
+        // 3. 选择扰动 (Will's Choice)
+        // VAPO 策略：在 active window 内选择。
+        // 这里简化为全域加权选择。
+        let idx = rng.gen_range(0..gen_count);
+        let perturbation = &self.generators[idx];
+
+        let candidate = self.current_seed.compose(perturbation);
+        
+        (candidate, idx)
+    }
+
+    /// 接受 (Accept)：确认这一步有效，更新状态并记录轨迹
+    pub fn accept(&mut self, new_state: ClassGroupElement, generator_idx: usize) {
+        self.current_seed = new_state;
+        self.trace.push(generator_idx);
+        self.iteration_count += 1;
+    }
+    
+    // 增加计数器，即使拒绝也算一步，用于模拟退火的温度控制和随机数混合
+    pub fn reject(&mut self) {
+        self.iteration_count += 1;
+    }
 }
