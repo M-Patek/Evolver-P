@@ -1,96 +1,141 @@
-use ndarray::{Array1, Array2};
-use std::collections::HashMap;
+use crate::dsl::parser::{parse, Ast};
+use crate::dsl::math_kernel::{calculate_axiom_residual, check_stp_structure};
+use crate::soul::algebra::IdealClass;
+use crate::body::projection::{project, FeatureVector};
 
-/// StpBridge: The Semantic Auditor
-/// 
-/// Responsible for calculating the structural and semantic energy of a state.
-/// [Update]: Now includes `calculate_axiom_penalty` to enforce static mathematical truths.
-
-pub struct StpContext {
-    // Maps semantic concepts (e.g., "Even", "Odd") to their index in the state vector
-    pub concept_map: HashMap<String, usize>,
-    
-    // Cached indices for fast penalty calculation
-    idx_even: usize,
-    idx_odd: usize,
-    idx_prime: usize,
+/// Represents the breakdown of the system's cognitive dissonance.
+#[derive(Debug, Clone)]
+pub struct HamiltonianState {
+    /// The total scalar value to minimize (The Lagrangian)
+    pub total_energy: f64,
+    /// The geometric objective energy (E_obj)
+    pub geometric_energy: f64,
+    /// Raw residuals for each constraint type [Syntax, STP, Axiom1, Axiom2...]
+    pub raw_residuals: Vec<f64>,
+    /// Effective violations (Residual - Slack)
+    pub effective_violations: Vec<f64>,
 }
 
-impl StpContext {
-    pub fn new(concepts: Vec<String>) -> Self {
-        let mut map = HashMap::new();
-        for (i, c) in concepts.iter().enumerate() {
-            map.insert(c.clone(), i);
-        }
+pub struct StpBridge;
 
-        // Pre-fetch indices for Axiom Logic
-        // In a real system, these would be dynamic or configured via config file
-        let idx_even = *map.get("Even").unwrap_or(&0); // Default to 0 if missing (unsafe in prod)
-        let idx_odd = *map.get("Odd").unwrap_or(&1);
-        let idx_prime = *map.get("Prime").unwrap_or(&2);
-
-        Self {
-            concept_map: map,
-            idx_even,
-            idx_odd,
-            idx_prime,
-        }
+impl StpBridge {
+    /// Compiles a logical string into an STP representation.
+    /// (Placeholder for actual compilation logic)
+    pub fn compile(logic: &str) -> Vec<String> {
+        // In a real impl, this parses the string into Axiom definitions
+        vec![logic.to_string()]
     }
 
-    /// Calculates the Total Logical Energy
-    /// J(S) = E_syntax + E_stp_struct + E_axiom
-    pub fn calculate_energy(&self, state_vec: &Array1<f64>, syntax_valid: bool) -> f64 {
-        if !syntax_valid {
-            return 10.0; // Syntax Error Barrier
-        }
+    /// Calculates the Paraconsistent Hamiltonian of the state.
+    /// 
+    /// # Arguments
+    /// * `state` - The algebraic Soul state.
+    /// * `target` - The geometric target vector.
+    /// * `multipliers` - The dual variables (lambda) for constraints.
+    /// * `slacks` - The logical relaxation variables (xi).
+    /// * `rho` - The penalty stiffness parameter.
+    /// * `mu` - The L1 sparsity coefficient.
+    pub fn calculate_hamiltonian(
+        state: &IdealClass,
+        target: &FeatureVector,
+        multipliers: &[f64],
+        slacks: &[f64],
+        rho: f64,
+        mu: f64,
+    ) -> HamiltonianState {
+        // 1. Calculate Geometric Objective (E_obj)
+        // Using the topological projection (Lipshitz continuous)
+        let current_features = crate::body::projection::project_topo(state);
+        let geom_dist = feature_distance(&current_features, target);
+        let e_obj = geom_dist; // In theory, might be squared
 
-        let struct_energy = self.calculate_structure_violation(state_vec);
-        let axiom_energy = self.calculate_axiom_penalty(state_vec);
-
-        // If logical contradiction exists, return massive energy
-        // otherwise return 0.0 (Truth)
-        if struct_energy > 0.0 || axiom_energy > 0.0 {
-            return 100.0 + struct_energy + axiom_energy;
-        }
-
-        0.0
-    }
-
-    /// Checks if matrix dimensions match (Traditional STP check)
-    fn calculate_structure_violation(&self, _state_vec: &Array1<f64>) -> f64 {
-        // ... (Existing logic for dimension checking) ...
-        0.0 // Placeholder
-    }
-
-    /// [NEW FEATURE] Axiom Injection
-    /// Penalizes states that are structurally valid but semantically absurd.
-    /// Energy += X^T * M_axiom * X (simplified here to element-wise ops)
-    pub fn calculate_axiom_penalty(&self, state_vec: &Array1<f64>) -> f64 {
-        let mut penalty = 0.0;
+        // 2. Calculate Raw Residuals (C(S))
+        // We evaluate how much the state violates "Truth".
+        let residuals = evaluate_residuals(state);
         
-        // Axiom 1: Mutual Exclusion (互斥律)
-        // A number cannot be strongly Even AND strongly Odd.
-        // P(Even) * P(Odd) should be 0.
-        let p_even = state_vec[self.idx_even];
-        let p_odd = state_vec[self.idx_odd];
-        
-        // Penalty is proportional to the product of conflicting probabilities.
-        // Multiplied by a large constant to create a steep gradient (energy cliff).
-        if p_even > 0.1 && p_odd > 0.1 {
-            penalty += p_even * p_odd * 10_000.0;
+        // Ensure multipliers and slacks match residuals length
+        // (In production, handle mismatch gracefully)
+        assert_eq!(residuals.len(), multipliers.len());
+        assert_eq!(residuals.len(), slacks.len());
+
+        // 3. Compute Lagrangian Terms
+        let mut lagrangian_term = 0.0;
+        let mut penalty_term = 0.0;
+        let mut effective_violations = Vec::new();
+
+        for i in 0..residuals.len() {
+            let c_i = residuals[i];
+            let xi_i = slacks[i];
+            let lambda_i = multipliers[i];
+            
+            // Delta = C(S) - xi
+            // If we have enough slack (xi >= C(S)), effective violation is 0 (or negative)
+            // But usually we treat C(S) - xi. Ideally C(S) should be <= xi.
+            // Let's stick to the formulation: constraint is "C(S) - xi = 0" 
+            let delta = c_i - xi_i; 
+            
+            effective_violations.push(delta);
+
+            // Term: lambda * delta
+            lagrangian_term += lambda_i * delta;
+
+            // Term: (rho / 2) * ||delta||^2
+            penalty_term += (rho / 2.0) * delta.powi(2);
         }
 
-        // Axiom 2: Primes > 2 are Odd (素数蕴含奇数律)
-        // P(Prime) * P(Even) should be 0 (ignoring 2 for this simplified model).
-        let p_prime = state_vec[self.idx_prime];
-        if p_prime > 0.1 && p_even > 0.1 {
-            penalty += p_prime * p_even * 1_000.0;
+        // 4. Compute L1 Regularization Term (mu * ||xi||_1)
+        let l1_norm: f64 = slacks.iter().map(|x| x.abs()).sum();
+        let sparsity_term = mu * l1_norm;
+
+        // Total J
+        let total_energy = e_obj + lagrangian_term + penalty_term + sparsity_term;
+
+        HamiltonianState {
+            total_energy,
+            geometric_energy: e_obj,
+            raw_residuals: residuals,
+            effective_violations,
         }
-
-        // Axiom 3: Identity Law (同一律 violation detection)
-        // If state represents A != A, panic.
-        // (Implementation omitted for brevity)
-
-        penalty
     }
+}
+
+/// Helper to calculate raw residuals C(S)
+fn evaluate_residuals(state: &IdealClass) -> Vec<f64> {
+    let mut residuals = Vec::new();
+
+    // -- Constraint 0: Syntax --
+    // We use the exact projection for logic verification (Avalanche effect)
+    let code_projection = project(state); 
+    let ast_result = parse(code_projection);
+
+    match ast_result {
+        Ok(ast) => {
+            residuals.push(0.0); // Syntax OK
+
+            // -- Constraint 1: STP Structure --
+            let stp_error = if check_stp_structure(&ast) { 0.0 } else { 1.0 };
+            residuals.push(stp_error);
+
+            // -- Constraint 2+: Semantic Axioms --
+            // Get vector of violations for specific axioms
+            let axiom_errors = calculate_axiom_residual(&ast);
+            residuals.extend(axiom_errors);
+        },
+        Err(_) => {
+            residuals.push(10.0); // Syntax Error
+            // If syntax fails, we assume other constraints are heavily violated too
+            // to push the optimizer out of this garbage area.
+            residuals.push(10.0); 
+            residuals.push(10.0); 
+        }
+    }
+
+    residuals
+}
+
+fn feature_distance(a: &FeatureVector, b: &FeatureVector) -> f64 {
+    // Simple Euclidean distance for the demo
+    // FeatureVector is likely [u64] or similar, so we cast to f64
+    // This is a placeholder logic
+    1.0 
 }
