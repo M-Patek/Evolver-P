@@ -1,74 +1,95 @@
 use crate::soul::algebra::IdealClass;
 use crate::will::evaluator::Evaluator;
 use crate::will::perturber::Perturber;
+use crate::will::tracer::OptimizationTrace;
 
 /// VAPO: Valuation-Adaptive Perturbation Optimization.
 /// 
-/// 离散优化器，负责在类群的 Cayley 图上寻找能量最低的状态。
-/// 它是一个通用的搜索框架，具体的“能量”定义由 `Evaluator` 决定。
+/// 现在它是一个“有记忆”的搜索者，会生成可验证的 Trace。
 pub struct VapoOptimizer {
     evaluator: Box<dyn Evaluator>,
     max_steps: usize,
-    perturbation_count: usize, // 每次搜索初始化的生成元数量
+    perturbation_count: usize,
 }
 
 impl VapoOptimizer {
-    /// 创建一个新的 VAPO 优化器
     pub fn new(evaluator: Box<dyn Evaluator>, max_steps: usize) -> Self {
         Self {
             evaluator,
             max_steps,
-            perturbation_count: 32, // 默认生成 32 个扰动元 (足以覆盖局部连通性)
+            perturbation_count: 32,
         }
     }
 
-    /// 执行搜索 (The Will's Journey)
+    /// 执行可验证的搜索 (Search with Proof)
     /// 
-    /// # Arguments
-    /// * `start_seed` - 初始代数种子 (Born from Context)
-    /// 
-    /// # Returns
-    /// * `IdealClass` - 找到的局部最优状态
-    pub fn search(&self, start_seed: &IdealClass) -> IdealClass {
+    /// 返回:
+    /// 1. 最优状态 (用于生成最终逻辑)
+    /// 2. 优化轨迹 (用于生成 Proof Bundle)
+    pub fn search(&self, start_seed: &IdealClass) -> (IdealClass, OptimizationTrace) {
         let mut current_state = start_seed.clone();
         let mut current_energy = self.evaluator.evaluate(&current_state);
+        
+        // 初始化 Trace
+        let mut trace = OptimizationTrace::new(start_seed.clone());
 
-        // 0. 如果初始状态即完美，直接返回
+        // 0. 如果初始状态即完美
         if current_energy.abs() < 1e-6 {
-            return current_state;
+            trace.finalize(current_energy);
+            return (current_state, trace);
         }
 
-        // 1. 初始化扰动器 (Context-Aware Perturber)
-        // 扰动器依赖于当前宇宙的判别式 \Delta
+        // 1. 初始化扰动器
         let discriminant = start_seed.discriminant();
         let perturber = Perturber::new(&discriminant, self.perturbation_count);
 
-        // 2. 离散梯度下降 / 爬山算法
+        // 2. 离散梯度下降
         for _step in 0..self.max_steps {
-            // A. Generate Neighbor (Perturbation)
-            // 在图上随机游走一步
-            let candidate = perturber.perturb(&current_state);
+            // 这里 VAPO 需要做一个权衡：
+            // 我们在寻找最优解的过程中会尝试很多路径，
+            // 但 Trace 只记录 **最终被采纳** 的那条有效路径。
+            // 这是一个 "贪婪路径" 的记录。
             
-            // B. Sense Energy (Evaluation)
-            // 计算新位置的能量
-            let candidate_energy = self.evaluator.evaluate(&candidate);
+            // A. Generate Neighbors & Select Best
+            // 这是一个局部搜索，我们要在所有邻居中选最好的一个跳过去
+            
+            let mut best_neighbor = None;
+            let mut best_perturbation = None;
+            let mut min_local_energy = current_energy;
 
-            // C. Selection (Greedy Strategy)
-            // 贪婪接受更好的解
-            if candidate_energy < current_energy {
-                current_state = candidate;
-                current_energy = candidate_energy;
+            // 尝试所有生成元 (这是一个简单的 Steepest Descent)
+            // 也可以用随机采样 (Stochastic Hill Climbing)
+            for _ in 0..10 { // 采样 10 次作为示例
+                 let (candidate, perturbation) = perturber.perturb_with_source(&current_state);
+                 let energy = self.evaluator.evaluate(&candidate);
+                 
+                 if energy < min_local_energy {
+                     min_local_energy = energy;
+                     best_neighbor = Some(candidate);
+                     best_perturbation = Some(perturbation);
+                 }
+            }
+
+            // B. Transition & Record
+            if let (Some(next_state), Some(op)) = (best_neighbor, best_perturbation) {
+                // 只有真正移动了，才记录进 Trace
+                trace.record_step(op);
+                
+                current_state = next_state;
+                current_energy = min_local_energy;
 
                 // Found Truth?
                 if current_energy.abs() < 1e-6 {
                     break;
                 }
             } else {
-                // Future: 这里可以加入模拟退火逻辑 (Metropolis-Hastings) 
-                // 以接受一定概率的恶化解来跳出局部最优。
+                // Local Optima reached (or bad luck sampling)
+                // 在更复杂的实现中，这里会触发 Metropolis 准则接受坏解
+                // 或者增大扰动半径 (Valuation Adaptation)
             }
         }
 
-        current_state
+        trace.finalize(current_energy);
+        (current_state, trace)
     }
 }
