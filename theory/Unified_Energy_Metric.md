@@ -1,81 +1,65 @@
-# Unified Energy Metric: The Barrier-Residual Model
+# Unified Energy Metric v2.0: The Paraconsistent Hamiltonian
 
-"The Will needs a Slope, the Truth needs a Threshold."
+> "The Will climbs the smooth hill; the Truth resides in the sharp valley... but sometimes the valley is underwater."
 
-## 1. The Definitions
+## 1. Overview
 
-To strictly align the implementation (`src/dsl/stp_bridge.rs`) with the theoretical specification, we define the Total System Energy $J(S)$ as a sum of a Discrete Barrier, a Semantic Axiom Penalty, and a Continuous Residual.
+**Revision Note (v2.0):** This document supersedes the previous "Barrier-Residual" model. We have moved from a static penalty model to a dynamic Augmented Lagrangian model to handle logical inconsistencies robustly.
 
-$$J(S) = E_{barrier}(\Psi(S)) + E_{axiom}(\Psi(S)) + E_{residual}(\Psi(S))$$
+The metric no longer simply measures "Distance to Truth" (which may be infinite in paradoxical systems), but **"Cognitive Dissonance."**
 
-### 1.1 The Discrete Barrier ($E_{barrier}$)
+---
 
-The Barrier represents the Syntactic and Structural Validity.
+## 2. The Objective Function Components
 
-| Value ($B$) | State Meaning | Condition |
+The total Hamiltonian $J$ is composed of three distinct forces:
+
+### 2.1 The Semantic Objective ($E_{obj}$)
+
+Represents the geometric goal of the evolution (the user's intent).
+
+$$E_{obj}(S) = || \Psi_{topo}(S) - \Psi_{target} ||^2$$
+
+**Role:** Guidance. It pulls the system towards the general "shape" of the desired solution.
+
+### 2.2 The Axiomatic Residuals ($C(S)$)
+
+Instead of a binary "True/False", each axiom $i$ produces a continuous residual value $C_i(S) \ge 0$.
+
+* **Syntax Constraints:** $C_{syntax}(S) = 0$ if parser succeeds, else $>0$.
+* **STP Constraints:** $C_{stp}(S) = || L(S) - R(S) ||^2$ (Algebraic difference between Left and Right sides of equations).
+* **Semantic Axioms:** $C_{axiom}(S) = \text{relu}(\mathbf{X}^T \mathbf{M} \mathbf{X})$ (Penalty for activating mutually exclusive concepts).
+
+### 2.3 The Logical Slack ($\xi$)
+
+A vector variable managed by the optimizer. $\xi_i$ represents the accepted violation of constraint $i$.
+
+---
+
+## 3. The Energy Calculation Logic
+
+In implementation (`src/dsl/stp_bridge.rs`), the energy is no longer a simple `f64`. It is a structured evaluation of the Lagrangian:
+
+$$\mathcal{L}_{\rho}(S, \lambda, \xi) = E_{obj} + \sum (\lambda_i \cdot \Delta_i) + \frac{\rho}{2} \sum \Delta_i^2 + \mu ||\xi||_1$$
+
+Where the effective violation is:
+
+$$\Delta_i = C_i(S) - \xi_i$$
+
+### Interpretation of Energy Levels
+
+| Hamiltonian Value $J$ | System State | Interpretation |
 | :--- | :--- | :--- |
-| 0.0 | STRUCTURALLY OK | Parser OK AND Dimensions Match. |
-| 10.0 | SYNTAX ERROR | Parser Failed (e.g., structural mismatch, invalid opcode). |
-| 100.0 | LOGICAL FALSE | STP Logic Contradiction ($E_{STP} > 0$). |
-
-### 1.2 The Semantic Axiom Penalty ($E_{axiom}$) [NEW]
-
-To prevent "Consistent but Absurd" states (e.g., proving $5$ is Even), we inject static Axiom Matrices.
-
-$$E_{axiom} = \mathbf{X}^T \mathbf{M}_{axiom} \mathbf{X}$$
-
-Where $\mathbf{M}_{axiom}$ encodes penalties for violating fundamental truths (e.g., Mutual Exclusion of Even/Odd).
-
-* **Logic:** If the system attempts to activate conflicting semantic concepts simultaneously, this term explodes (e.g., $+10,000$).
-* **Role:** Acts as the "Common Sense" filter. It ensures that semantic meaning is preserved even if type signatures match.
-
-### 1.3 The Continuous Residual ($E_{residual}$)
-
-The Residual represents the Geometric Proximity. It serves as a tie-breaker for invalid states.
-
-$$E_{residual}(S) = \beta \cdot || \mathbf{F}(S) - \mathbf{F}_{target} ||^2$$
+| $\approx 0.0$ | **Nirvana** | Perfect Logic. All axioms satisfied ($\xi=0$), Target matched. |
+| Low ($< 10.0$) | **Compromise** | Logically valid, or minimal axiom violation ($\xi > 0$). |
+| High ($> 100.0$) | **Dissonance** | Major structural conflict. Logic is broken and unrelaxed. |
 
 ---
 
-## 2. The Logic of Optimization
+## 4. Verification
 
-The optimizer seeks to minimize $J(S)$. The landscape implies a priority queue of constraints:
+The **Proof of Will** now includes the **Compromise Certificate**:
 
-1.  **Priority 1: Enforce Axioms ($E_{axiom}$)**
-    The system must not violate fundamental math. A "structurally valid" proof that $5$ is Even is worse than a syntax error. It is a lie.
-2.  **Priority 2: Fix Logic ($E_{barrier}$)**
-    Resolve STP structural contradictions.
-3.  **Priority 3: Fix Syntax ($E_{barrier}$)**
-    Fix parser errors.
-4.  **Priority 4: Optimize Intuition ($E_{residual}$)**
-    Hill-climb towards the geometric target.
+$$\text{Cert} = \{ S_{final}, \xi_{final} \}$$
 
----
-
-## 3. Implementation Alignment
-
-The implementation in `src/dsl/stp_bridge.rs` reflect this structure:
-
-```rust
-pub fn calculate_energy(state: &IdealClass, target: &FeatureVector) -> f64 {
-    // 1. Syntax Check
-    let ast = match parse(project(state)) {
-        Ok(ast) => ast,
-        Err(_) => return 10.0 + dist,
-    };
-
-    // 2. Axiom Check (The Truth Police)
-    let axiom_penalty = calculate_axiom_penalty(&ast);
-    if axiom_penalty > 0.0 {
-        return 100.0 + axiom_penalty; // Huge penalty for lying
-    }
-
-    // 3. Structure Check
-    let struct_violation = stp_check(&ast);
-    if struct_violation {
-        return 100.0;
-    }
-
-    return 0.0; // Success
-}
-```
+If $\xi_{final} \neq \vec{0}$, the verifier knows exactly which logic rules were bent to generate the result. This provides transparency rather than silent failure.
