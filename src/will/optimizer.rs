@@ -1,82 +1,112 @@
-use crate::soul::algebra::{IdealClass, Quaternion};
 use crate::will::evaluator::Evaluator;
-use crate::will::perturber::{Perturber, HeckePerturber};
-use crate::will::tracer::Trace;
+use crate::will::perturber::Perturber; // [Modified] Perturber is now a concrete struct or trait we use directly
+use crate::will::ricci::RicciFlow;    // [New] Import Ricci Flow
+use crate::soul::algebra::IdealClass;
 
-/// VAPO 优化器 (Graph Walker 版)
+/// Valuation-Adaptive Perturbation Optimizer (VAPO)
 /// 
-/// 在 Ramanujan 图上执行估值自适应扰动优化。
-/// 由于新架构中使用了定四元数算术格，图具有最优的谱隙 (Spectral Gap)。
-/// 这意味着随机游走或贪婪搜索能以极快的速度混合，避免陷入局部最优。
+/// Updated with Topological Amendment (v2.3):
+/// Now traverses the Conformal Manifold (V, d_Ricci) instead of the raw Cayley Graph.
 pub struct VapoOptimizer {
     evaluator: Box<dyn Evaluator>,
-    perturber: Box<dyn Perturber>,
-    max_steps: usize,
+    perturber: Perturber, // [Explicit] We need direct access to perturber for lookahead
+    search_steps: usize,
+    
+    // [New] The Geometry Engine
+    ricci_engine: RicciFlow,
 }
 
 impl VapoOptimizer {
-    /// 创建一个新的优化器实例
-    pub fn new(evaluator: Box<dyn Evaluator>, max_steps: usize) -> Self {
+    pub fn new(evaluator: Box<dyn Evaluator>, search_steps: usize, p: u64) -> Self {
+        // Initialize Perturber with standard generating set (assumed logic)
+        let perturber = Perturber::new_standard(p);
+        
         Self {
             evaluator,
-            perturber: Box::new(HeckePerturber::new()), // 默认使用 Hecke 扰动
-            max_steps,
+            perturber,
+            search_steps,
+            // Sensitivity = 2.0 意味着对负曲率非常敏感
+            ricci_engine: RicciFlow::new(2.0, p), 
         }
     }
 
-    /// 执行进化搜索
-    /// 输入种子状态，返回能量最低的状态及其因果路径 (Trace)。
-    pub fn search(&self, seed: &IdealClass) -> (IdealClass, Trace) {
+    /// 执行搜索 (The Walk of Will)
+    /// 
+    /// Returns: (Best State, Trace Path)
+    pub fn search(&self, seed: &IdealClass) -> (IdealClass, Vec<String>) {
         let mut current_state = seed.clone();
         let mut current_energy = self.evaluator.evaluate(&current_state);
-        let mut trace = Trace::new();
+        let mut trace = Vec::new();
 
-        // 初始记录
-        trace.record(Quaternion::identity(), current_energy);
+        println!("Starting VAPO Search on Ricci-Flowed Manifold...");
+        println!("Initial Energy: {:.4}", current_energy);
 
-        for step in 0..self.max_steps {
-            // 1. 如果能量为 0，真理已找到，立即停止。
-            if current_energy <= 1e-6 {
-                println!("喵！在第 {} 步找到了真理 (Energy=0)！", step);
+        for step in 0..self.search_steps {
+            if current_energy.abs() < 1e-6 {
+                println!("Convergence reached at step {}", step);
                 break;
             }
 
-            // 2. 获取所有可能的因果移动 (Hecke Neighbors)
-            let moves = self.perturber.get_moves();
+            // 1. 获取候选邻居 (Perturbations)
+            let candidates = self.perturber.generate_candidates(&current_state);
             
-            // 3. 贪婪评估 (Look-ahead 1 step)
-            // 在 Ramanujan 图上，邻域包含了足够的信息来指导下降。
-            let mut best_move = Quaternion::identity();
-            let mut best_energy = f64::MAX;
-            let mut found_better = false;
+            // 2. 评估候选者 (Evaluation Loop)
+            // 这里我们不仅计算能量 E，还计算有效梯度 \nabla_{eff}
+            let mut best_candidate = None;
+            let mut min_effective_energy = f64::MAX;
+            let mut selected_move_name = String::new();
 
-            for mv in &moves {
-                // S_next = S_curr * Operator
-                let next_state = current_state.apply_hecke(mv);
-                let energy = self.evaluator.evaluate(&next_state);
+            for (move_name, candidate_state) in candidates {
+                // A. 原始能量 (Truth)
+                let raw_energy = self.evaluator.evaluate(&candidate_state);
+                
+                // B. 曲率计算 (Stability)
+                // 计算从 current 到 candidate 这条边的曲率
+                let kappa = self.ricci_engine.calculate_curvature(
+                    &current_state, 
+                    &candidate_state, 
+                    &self.perturber
+                );
 
-                if energy < best_energy {
-                    best_energy = energy;
-                    best_move = *mv;
-                    found_better = true;
+                // C. 度量修正 (The Amendment)
+                // E_eff = E_raw + Penalty(\kappa)
+                let curvature_penalty = self.ricci_engine.compute_penalty(kappa);
+                let effective_energy = raw_energy + curvature_penalty;
+
+                // Debug log for critical decisions
+                if step % 10 == 0 && effective_energy < current_energy {
+                    println!("  Option [{}]: E={:.4}, k={:.4}, E_eff={:.4}", 
+                        move_name, raw_energy, kappa, effective_energy);
+                }
+
+                if effective_energy < min_effective_energy {
+                    min_effective_energy = effective_energy;
+                    best_candidate = Some(candidate_state);
+                    selected_move_name = move_name;
                 }
             }
 
-            // 4. 状态转移决策
-            // 这里使用了简单的最速下降法 (Steepest Descent)。
-            // 在更复杂的版本中，可以引入 Metropolis-Hastings 准则来允许以一定概率接受坏状态（热涨落）。
-            if found_better && best_energy < current_energy {
-                current_state = current_state.apply_hecke(&best_move);
-                current_energy = best_energy;
-                
-                // 记录因果算子
-                trace.record(best_move, current_energy);
+            // 3. 状态更新 (Transition)
+            // 只有当有效能量下降时才移动 (Hill Climbing on Ricci Manifold)
+            // 注意：这里我们比较的是 effective_energy，即使 raw_energy 降低了，
+            // 如果曲率是极负的（陷阱），effective_energy 可能会很高，从而阻止移动。
+            if let Some(next_state) = best_candidate {
+                // 计算当前状态的有效能量作为基准（近似）
+                let current_kappa_est = 0.0; // 原地不动曲率为0
+                let current_eff = current_energy + self.ricci_engine.compute_penalty(current_kappa_est);
+
+                if min_effective_energy < current_eff {
+                    current_state = next_state;
+                    // 更新 current_energy 为真实的原始能量，用于下一次迭代判断收敛
+                    current_energy = self.evaluator.evaluate(&current_state);
+                    trace.push(selected_move_name.clone());
+                } else {
+                    // Local Minima on Ricci Manifold
+                    // 可能需要模拟退火或随机重启 (未实现)
+                    break;
+                }
             } else {
-                // 如果陷入局部最优 (虽然在 Ramanujan 图上很少见)，
-                // 我们可以选择随机跳跃或者通过 "Identity" 保持不动并终止。
-                // 这里为了鲁棒性，我们尝试一个随机扰动来打破僵局。
-                // (简化处理：直接停止或继续搜索)
-                // println!("陷入局部最优，能量: {}", current_energy);
+                break;
             }
         }
 
