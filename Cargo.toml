@@ -1,6 +1,6 @@
 [package]
 name = "new_evolver"
-version = "0.3.0" # Version Bump: Lite Edition (Logic Only)
+version = "0.3.1" # Patch: Security & Interface Fixes
 edition = "2021"
 
 # 编译为 Python 扩展库 (.so / .pyd)
@@ -16,10 +16,16 @@ serde_json = "1.0"
 # 基础数学与随机数 (用于 VAPO 扰动)
 rand = "0.8"
 num-integer = "0.1"
-num-bigint = "0.4" # [Added] 为类群运算提供大整数支持
+num-bigint = "0.4"
+num-traits = "0.2"
+
+# 密码学安全 (Fix Problem 1: 引入 SHA-2 家族)
+sha2 = "0.10"
+digest = "0.10"
 
 # Python FFI 绑定
 pyo3 = { version = "0.20.0", features = ["extension-module"] }
+uuid = { version = "1.0", features = ["v4", "fast-rng"] }
 
 # 通用错误处理
 anyhow = "1.0"
