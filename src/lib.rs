@@ -5,14 +5,14 @@ use pyo3::prelude::*;
 use num_bigint::BigInt;
 use crate::soul::algebra::ClassGroupElement;
 use crate::will::optimizer::VapoOptimizer;
-use crate::body::topology::VPuNNConfig;
+use crate::body::topology::{VPuNNConfig, project_state_to_digits};
 use crate::dsl::stp_bridge::STPContext;
 use crate::will::perturber::EnergyEvaluator;
 use crate::dsl::schema::{self, ProofAction};
-
-// 引入真实的函数式接口
-use crate::body::decoder::materialize_path;
 use crate::body::adapter::path_to_proof_action;
+
+// 引入新的导航模块
+use crate::body::navigator::NavigationFeatures;
 
 pub mod soul;
 pub mod will;
@@ -20,20 +20,18 @@ pub mod body;
 pub mod dsl;
 
 // ==========================================
-// [Fix] STPEvaluator 接口修复
+// [Refactor] STPEvaluator: 基于模特征的评估
 // ==========================================
 
 struct STPEvaluator;
 
 impl EnergyEvaluator for STPEvaluator {
-    // 严格遵守 Trait 定义：接收 digits (&[u64])
     fn evaluate(&self, digits: &[u64]) -> f64 {
         // 1. 翻译: 将数字信号 (Will) 转换为逻辑动作 (Logic)
-        // 注意: 目前 Adapter 将整个路径映射为一个复杂动作
         let action = path_to_proof_action(digits);
-        let actions = vec![action]; // 包装为 Vec 供 STP 消费
+        let actions = vec![action]; 
 
-        // 2. 计算: 调用 STP 引擎
+        // 2. 计算: 调用 STP 引擎计算逻辑能量
         let mut stp = STPContext::new();
         stp.calculate_energy(&actions)
     }
@@ -100,26 +98,24 @@ impl PyEvolver {
     }
 
     fn align(&self, context: String) -> PyResult<PyProofBundle> {
-        // 1. Inception: 动态生成宇宙和种子
+        // 1. Inception
         let (seed, universe) = ClassGroupElement::spawn_universe(&context);
         
         let ctx_hash = universe.context_hash;
         let discriminant_hex = universe.discriminant.to_str_radix(16);
         let start_seed_clone = seed.clone();
         
-        // 2. The Will: 优化器初始化
+        // 2. The Will: Optimizer
         let mut optimizer = VapoOptimizer::new(seed);
         
         let mut best_energy = f64::MAX;
-        let mut best_path_digits = Vec::new();
         let mut best_logic_path_strings = Vec::new();
         let mut best_state = start_seed_clone.clone();
         
-        // [Fix] 构造真实的配置对象
         let config = VPuNNConfig {
-            depth: self.k, // 使用 k 控制路径深度
-            p_base: 997,   // 投影模数
-            layer_decay: 0.9, // 假设存在此字段，若 topology.rs 无此字段可删除
+            depth: self.k,
+            p_base: 997,
+            layer_decay: 0.9,
         };
 
         let evaluator = STPEvaluator;
@@ -129,19 +125,36 @@ impl PyEvolver {
         for _ in 0..max_iterations {
             let (candidate_state, gen_idx) = optimizer.perturb();
             
-            // [Fix] 调用 materialize_path (Body)
-            let path_digits = materialize_path(&candidate_state, &config);
+            // [NEW] Canonical Modular Projection
+            // 使用新的 navigator -> topology 管道
+            let mut path_digits = Vec::new();
             
-            // [Fix] 评估能量 (Will -> Logic)
+            // 为了生成逻辑路径，我们在这里做一个简单的时间展开 (Time Unfolding)
+            // 注意：Will 的搜索是在静态图上，但评估需要看到这一点的"逻辑结果"
+            let mut time_state = candidate_state.clone();
+            for t in 0..config.depth {
+                 // 在每一步时间演化中，投影当前状态
+                 let digit = project_state_to_digits(&time_state, &config, t as u64);
+                 path_digits.push(digit);
+                 
+                 // 简单的群操作模拟时间演化 (Repeated Squaring or simple composition)
+                 // 这里简化为保持状态不变或简单变换，视具体 Time Dynamics 定义而定
+                 // 真实的 VDF 应该在这里做 square()，为了演示保持简单
+                 time_state = time_state.square(); 
+            }
+            
+            // 评估能量
             let energy = evaluator.evaluate(&path_digits);
 
+            // [NEW] Heuristic Guidance (Navigator)
+            // 除了 STP 的硬能量，我们还可以加入 Navigation Features 的几何势能
+            // 这里暂且只用 Logic Energy，但底层机制已经 ready
+            
             if energy < best_energy {
                 best_energy = energy;
-                best_path_digits = path_digits.clone();
                 best_state = candidate_state.clone();
                 
-                // 将最佳结果转换为字符串以便人类阅读
-                let action = path_to_proof_action(&best_path_digits);
+                let action = path_to_proof_action(&path_digits);
                 best_logic_path_strings = vec![format!("{:?}", action)];
                 
                 optimizer.accept(candidate_state, gen_idx);
@@ -156,8 +169,8 @@ impl PyEvolver {
 
         // 4. Revelation
         let generator_spec = schema::GeneratorSpec {
-            algorithm_version: "v1_sequential_primes".to_string(),
-            count: 50, // 需与 optimizer 内部保持一致
+            algorithm_version: "v2.1_modular_feature".to_string(), // Updated version
+            count: 50,
             max_norm: None,
         };
 
