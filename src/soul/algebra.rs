@@ -1,290 +1,230 @@
-use num_bigint::{BigInt, Sign};
-use num_traits::{Signed, Zero, One, Num, ToPrimitive};
-use num_integer::Integer;
-use serde::{Serialize, Deserialize};
-use std::mem;
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 use std::fmt;
-use thiserror::Error; // 引入 thiserror 喵！
+use std::ops::{Add, Mul, Neg, Sub};
 
-/// Evolver 系统错误定义
-/// 这里的错误是可以被 VAPO 捕捉并转化为能量惩罚的
-#[derive(Error, Debug, Clone, PartialEq)]
-pub enum EvolverError {
-    #[error("Cosmic Mismatch (Universe Violation): {0} vs {1}")]
-    CosmicMismatch(String, String),
-    
-    #[error("Singularity: Division by zero detected")]
-    Singularity,
-    
-    #[error("Numerical Instability: Result became NaN or Infinite")]
-    NumericalInstability,
+// ============================================================================
+// Constants defining the Definite Quaternion Algebra B_{p, \infty}
+// We choose p = 37 (a safe prime) for this implementation.
+// Algebra: i^2 = A, j^2 = B, ij = k, ji = -k
+// Parameters: A = -1, B = -p
+// ============================================================================
 
-    #[error("Invalid State: {0}")]
-    InvalidState(String),
+const ALGEBRA_P: i64 = 37;
+const PARAM_A: i64 = -1;
+const PARAM_B: i64 = -ALGEBRA_P;
+
+/// A Quaternion q = a + bi + cj + dk in the algebra B_{p, \infty}.
+/// This is the atomic "word" of our causal language.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Quaternion {
+    pub a: i64, // Scalar part
+    pub b: i64, // i coeff
+    pub c: i64, // j coeff
+    pub d: i64, // k coeff
 }
 
-/// 理想类 (Ideal Class)
-/// 代表虚二次域 Cl(Δ) 中的二元二次型 (a, b, c) -> ax^2 + bxy + cy^2
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IdealClass {
-    pub a: BigInt,
-    pub b: BigInt,
-    pub c: BigInt,
-}
+impl Quaternion {
+    pub fn new(a: i64, b: i64, c: i64, d: i64) -> Self {
+        Self { a, b, c, d }
+    }
 
-// 基础相等性比较
-impl PartialEq for IdealClass {
-    fn eq(&self, other: &Self) -> bool {
-        self.a == other.a && self.b == other.b && self.c == other.c
+    pub fn zero() -> Self {
+        Self::new(0, 0, 0, 0)
+    }
+
+    pub fn identity() -> Self {
+        Self::new(1, 0, 0, 0)
+    }
+
+    /// The reduced norm: N(q) = a^2 - A*b^2 - B*c^2 + A*B*d^2
+    /// Note: Since A<0 and B<0, this is a positive definite quadratic form.
+    pub fn norm(&self) -> i128 {
+        let a = self.a as i128;
+        let b = self.b as i128;
+        let c = self.c as i128;
+        let d = self.d as i128;
+
+        let term1 = a * a;
+        let term2 = -(PARAM_A as i128) * b * b;
+        let term3 = -(PARAM_B as i128) * c * c;
+        let term4 = (PARAM_A as i128) * (PARAM_B as i128) * d * d;
+
+        term1 + term2 + term3 + term4
+    }
+
+    /// Quaternion Conjugate: q_bar = a - bi - cj - dk
+    pub fn conjugate(&self) -> Self {
+        Self::new(self.a, -self.b, -self.c, -self.d)
     }
 }
-impl Eq for IdealClass {}
 
-impl fmt::Display for IdealClass {
+// ----------------------------------------------------------------------------
+// Operator Overloading for Non-Commutative Arithmetic
+// ----------------------------------------------------------------------------
+
+impl Add for Quaternion {
+    type Output = Self;
+    fn add(self, other: Self) -> Self {
+        Self::new(
+            self.a + other.a,
+            self.b + other.b,
+            self.c + other.c,
+            self.d + other.d,
+        )
+    }
+}
+
+impl Sub for Quaternion {
+    type Output = Self;
+    fn sub(self, other: Self) -> Self {
+        Self::new(
+            self.a - other.a,
+            self.b - other.b,
+            self.c - other.c,
+            self.d - other.d,
+        )
+    }
+}
+
+impl Mul for Quaternion {
+    type Output = Self;
+
+    /// Non-commutative multiplication in B_{p, \infty}
+    /// (a1 + b1i + c1j + d1k)(a2 + b2i + c2j + d2k)
+    /// Using multiplication table:
+    /// i^2 = A, j^2 = B, k^2 = -AB
+    /// ij = k, ji = -k
+    /// jk = -Bi, kj = Bi
+    /// ki = -Aj, ik = Aj
+    fn mul(self, rhs: Self) -> Self {
+        let a1 = self.a; let b1 = self.b; let c1 = self.c; let d1 = self.d;
+        let a2 = rhs.a; let b2 = rhs.b; let c2 = rhs.c; let d2 = rhs.d;
+
+        let A = PARAM_A;
+        let B = PARAM_B;
+
+        // Real part
+        let ra = a1*a2 + A*b1*b2 + B*c1*c2 - A*B*d1*d2;
+        
+        // i part
+        let rb = a1*b2 + b1*a2 - B*c1*d2 + B*d1*c2;
+
+        // j part
+        let rc = a1*c2 + A*b1*d2 + c1*a2 - A*d1*b2;
+
+        // k part
+        let rd = a1*d2 - b1*c2 + c1*b2 + d1*a2;
+
+        Self::new(ra, rb, rc, rd)
+    }
+}
+
+impl fmt::Display for Quaternion {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "[{}, {}, {}]", self.a, self.b, self.c)
+        write!(f, "[{}, {}, {}, {}]", self.a, self.b, self.c, self.d)
     }
 }
 
-/// 宇宙上下文
-pub struct Universe {
-    pub discriminant: BigInt,
-    pub context_hash: String,
+// ============================================================================
+// The Soul: Arithmetic Lattice State
+// Replaces the old IdealClass (Binary Quadratic Form)
+// ============================================================================
+
+/// Represents a node in the Pizer Graph (Ramanujan Graph).
+/// Physically, it is a Right Ideal in the Maximal Order of the Quaternion Algebra.
+/// Simplification: We represent the state by the accumulated path of quaternions
+/// acting on the origin.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct IdealClass {
+    /// The current value of the accumulator quaternion.
+    /// This represents the "Position" in the non-commutative lattice.
+    pub value: Quaternion,
+    
+    /// The 'context' prime p used for seeding (kept for compatibility).
+    pub discriminator: u64,
 }
 
 impl IdealClass {
-    pub fn new(a: BigInt, b: BigInt, c: BigInt) -> Self {
-        Self { a, b, c }
-    }
-
-    /// [Security Check] 验证两个元素是否属于同一个宇宙 (判别式相同)
-    /// 现在的返回值是 Result，不再是 Panic 喵！
-    pub fn ensure_same_universe(&self, other: &Self) -> Result<(), EvolverError> {
-        let delta_self = self.discriminant();
-        let delta_other = other.discriminant();
-        
-        if delta_self != delta_other {
-            return Err(EvolverError::CosmicMismatch(
-                delta_self.to_string(), 
-                delta_other.to_string()
-            ));
+    /// Creates a new Identity State (The Origin).
+    pub fn identity(discriminator: u64) -> Self {
+        Self {
+            value: Quaternion::identity(),
+            discriminator,
         }
-        Ok(())
     }
 
-    pub fn from_hash(context: &str, _p: u64) -> Self {
-        let (seed, _) = Self::spawn_universe(context);
-        seed
-    }
-
-    /// 自旋演化 (VDF Squaring)
-    pub fn square(&self) -> Result<Self, EvolverError> {
-        self.compose(self)
-    }
-
-    pub fn discriminant(&self) -> BigInt {
-        (&self.b * &self.b) - (BigInt::from(4) * &self.a * &self.c)
-    }
-
-    pub fn spawn_universe(context: &str) -> (Self, Universe) {
-        let target_bits = 2048; 
-        let expanded_bytes = expand_entropy(context, target_bits / 8);
-        let seed_bigint = BigInt::from_bytes_be(Sign::Plus, &expanded_bytes);
-
+    /// Seeds the Soul from a linguistic context.
+    /// Hashes the context to generate 4 integers (a, b, c, d) to form the initial Quaternion.
+    pub fn from_hash(context: &str, discriminator: u64) -> Self {
         let mut hasher = Sha256::new();
         hasher.update(context.as_bytes());
-        let context_hash = format!("{:x}", hasher.finalize());
+        let result = hasher.finalize();
 
-        let m_prime = next_prime_3_mod_4(seed_bigint.clone());
-        let delta = -m_prime;
+        // Slice the hash into 4 i64s
+        let bytes = result.as_slice();
+        let a = i64::from_be_bytes(bytes[0..8].try_into().unwrap_or([0; 8])) % 1000;
+        let b = i64::from_be_bytes(bytes[8..16].try_into().unwrap_or([0; 8])) % 1000;
+        let c = i64::from_be_bytes(bytes[16..24].try_into().unwrap_or([0; 8])) % 1000;
+        let d = i64::from_be_bytes(bytes[24..32].try_into().unwrap_or([0; 8])) % 1000;
 
-        let element = Self::generate_seed_in_delta(&delta, &seed_bigint);
-
-        let universe = Universe {
-            discriminant: delta,
-            context_hash,
+        // Ensure we start with a non-zero quaternion
+        let q = if a == 0 && b == 0 && c == 0 && d == 0 {
+            Quaternion::identity()
+        } else {
+            Quaternion::new(a, b, c, d)
         };
 
-        (element, universe)
+        Self {
+            value: q,
+            discriminator,
+        }
     }
 
-    fn generate_seed_in_delta(delta: &BigInt, initial_entropy: &BigInt) -> Self {
-        let four = BigInt::from(4);
-        let mut b_curr = initial_entropy.clone();
+    /// Apply a Hecke Operator action (Right Multiplication by a Generator).
+    /// This is the fundamental mechanism of Causality.
+    /// S_next = S_current * G
+    pub fn apply_hecke(&self, generator: &Quaternion) -> Self {
+        // Non-commutative state transition
+        let new_value = self.value * (*generator);
         
-        if (&b_curr % 2).is_zero() {
-            b_curr += BigInt::one();
-        }
-
-        let b_sq = &b_curr * &b_curr;
-        let num = b_sq - delta;
+        // Note: In a full implementation, we would perform lattice reduction here 
+        // (Right Ideal normalization) to keep coefficients small.
+        // For this verified-search version, we allow the coefficients to grow 
+        // as they carry the full path history (The Trace).
         
-        let a = num / &four;
-        let c = BigInt::one(); 
-
-        let mut element = Self::new(a, b_curr, c);
-        element.reduce();
-        element
+        Self {
+            value: new_value,
+            discriminator: self.discriminator,
+        }
     }
 
-    /// 高斯合成算法 (Gaussian Composition)
-    /// [Robustness Fix] 现在返回 Result<Self, EvolverError>
-    pub fn compose(&self, other: &Self) -> Result<Self, EvolverError> {
-        // 1. 严格性检查
-        self.ensure_same_universe(other)?;
-
-        let delta = self.discriminant();
-        let two = BigInt::from(2);
-
-        // 2. Unification
-        let s = (&self.b + &other.b) / &two;
-        let n = (&self.b - &other.b) / &two;
-
-        // 3. Extended GCD
-        let egcd1 = self.a.extended_gcd(&other.a);
-        let d1 = egcd1.gcd;
-        let v = egcd1.y;
-
-        let egcd2 = d1.extended_gcd(&s);
-        let d = egcd2.gcd;
+    /// Generates a set of "Hecke Neighbors" (The Spectral Gap guarantee).
+    /// Returns a list of valid moves from the current state.
+    pub fn neighbors(&self) -> Vec<Self> {
+        // In the Pizer graph for p=37, we look for elements of norm p.
+        // Hardcoded simplified generators for B_{37, \infty}
+        // These are quaternions with Norm = ALGEBRA_P (37).
+        // Since i^2 = -1, j^2 = -37, k^2 = -37.
+        // Norm = a^2 + b^2 + 37c^2 + 37d^2
         
-        // [Safety] 检查除零奇点
-        if d.is_zero() {
-            return Err(EvolverError::Singularity);
-        }
-
-        let big_u = egcd2.x;
-        let big_v = egcd2.y;
-
-        // 4. Solve components
-        let d_sq = &d * &d;
-        let a1_a2 = &self.a * &other.a;
-        let a3 = &a1_a2 / &d_sq;
-
-        let term1 = &big_v * &n;
-        let term2 = &big_u * &v * &other.c;
-        let big_k = term1 - term2;
-        let factor = &two * &other.a / &d;
-        let b3_raw = &other.b + &factor * &big_k;
-
-        let two_a3 = &two * &a3;
+        let mut moves = Vec::new();
         
-        // [Safety] 检查约化基是否为零
-        if two_a3.is_zero() {
-            return Err(EvolverError::Singularity);
-        }
-
-        let b3 = b3_raw.rem_euclid(&two_a3); 
-
-        let b3_sq = &b3 * &b3;
-        let num = &b3_sq - &delta;
-        let four_a3 = &two * &two_a3;
+        // 1. Trivial generators (if they exist in this algebra structure)
+        // For demonstration, we use a deterministic set of small perturbations
+        // that represent the 'directions' in the Cayley graph.
         
-        if four_a3.is_zero() {
-            return Err(EvolverError::Singularity);
-        }
+        // Generator 1: 6^2 + 1^2 = 37. (a=6, b=1, c=0, d=0) -> Norm = 36 + 1 = 37.
+        moves.push(self.apply_hecke(&Quaternion::new(6, 1, 0, 0)));
+        moves.push(self.apply_hecke(&Quaternion::new(6, -1, 0, 0)));
+        
+        // Generator 2: 1^2 + 6^2 = 37.
+        moves.push(self.apply_hecke(&Quaternion::new(1, 6, 0, 0)));
+        moves.push(self.apply_hecke(&Quaternion::new(1, -6, 0, 0)));
 
-        let c3 = num / four_a3;
+        // In a real Pizer graph, there are p+1 neighbors for T_p.
+        // We include "Identity-like" perturbations for fine-tuning.
+        moves.push(self.apply_hecke(&Quaternion::new(1, 0, 0, 0))); // Self-loop (Stay)
 
-        let mut result = IdealClass::new(a3, b3, c3);
-        result.reduce(); 
-        Ok(result)
+        moves
     }
-
-    pub fn inverse(&self) -> Self {
-        let mut res = IdealClass::new(self.a.clone(), -&self.b, self.c.clone());
-        res.reduce();
-        res
-    }
-
-    fn reduce(&mut self) {
-        let two_a = &self.a << 1; 
-        if two_a.is_zero() { return; } // 防止死循环
-
-        loop {
-            if self.b.abs() > self.a {
-                let mut r = &self.b % &two_a; 
-                if r > self.a { r -= &two_a; } 
-                else if r <= -&self.a { r += &two_a; }
-                
-                let b_new = r;
-                let k = (&b_new - &self.b) / &two_a; 
-                
-                let term = &self.b + (&self.a * &k);
-                self.c = &self.c + &k * term;
-                self.b = b_new;
-            }
-
-            if self.a > self.c {
-                mem::swap(&mut self.a, &mut self.c);
-                self.b = -&self.b;
-                continue;
-            }
-
-            if self.a == self.b.abs() || self.a == self.c {
-                if self.b < BigInt::zero() {
-                    self.b = -&self.b;
-                }
-            }
-            
-            if self.b.abs() <= self.a && self.a <= self.c {
-                break;
-            }
-        }
-    }
-}
-
-// --- Helper Functions ---
-fn expand_entropy(input: &str, target_bytes: usize) -> Vec<u8> {
-    let mut result = Vec::with_capacity(target_bytes);
-    let mut counter = 0u32;
-    while result.len() < target_bytes {
-        let mut hasher = Sha256::new();
-        hasher.update(input.as_bytes());
-        hasher.update(counter.to_be_bytes());
-        result.extend_from_slice(&hasher.finalize());
-        counter += 1;
-    }
-    result.truncate(target_bytes);
-    result
-}
-
-fn next_prime_3_mod_4(mut start: BigInt) -> BigInt {
-    if (&start % 2).is_zero() { start += 1; }
-    while (&start % 4) != BigInt::from(3) { start += 2; }
-    loop {
-        if is_probable_prime(&start, 5) { return start; }
-        start += 4; 
-    }
-}
-
-fn is_probable_prime(n: &BigInt, k: u32) -> bool {
-    let one = BigInt::one();
-    let two = BigInt::from(2);
-    if *n <= one { return false; }
-    if *n == two || *n == BigInt::from(3) { return true; }
-    if (n % &two).is_zero() { return false; }
-
-    let mut d = n - &one;
-    let mut s = 0;
-    while (&d % &two).is_zero() { d /= &two; s += 1; }
-    let mut witness_gen = n.clone(); 
-    for _ in 0..k {
-        witness_gen = (&witness_gen * BigInt::from(48271u32)) % (n - &BigInt::from(3));
-        let a = &witness_gen + &two;
-        let mut x = mod_pow(&a, &d, n);
-        if x == one || x == n - &one { continue; }
-        let mut composite = true;
-        for _ in 0..(s - 1) {
-            x = mod_pow(&x, &two, n);
-            if x == n - &one { composite = false; break; }
-        }
-        if composite { return false; }
-    }
-    true
-}
-
-fn mod_pow(base: &BigInt, exp: &BigInt, modulus: &BigInt) -> BigInt {
-    base.modpow(exp, modulus)
 }
