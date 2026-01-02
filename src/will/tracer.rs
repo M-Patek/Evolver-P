@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use crate::soul::algebra::IdealClass;
+use crate::soul::algebra::{IdealClass, EvolverError};
 use crate::will::perturber::Perturber;
 
 pub type Energy = f64;
@@ -13,6 +13,7 @@ pub enum VerificationResult {
     ContextMismatch { expected_seed: String, actual_seed: String },
     FinalStateMismatch { claimed: String, calculated: String },
     EnergyMismatch { claimed: Energy, calculated: Energy },
+    AlgebraicFailure { details: String }, // [New] 处理计算过程中的异常
 }
 
 /// 优化轨迹 (Proof of Will Certificate)
@@ -20,17 +21,10 @@ pub enum VerificationResult {
 pub struct OptimizationTrace {
     pub id: String,
     pub timestamp: u64,
-    pub context: String, // [New] 必须包含 Context 以验证种子来源
-    
-    /// 初始种子 (S_0)
+    pub context: String, 
     pub initial_state: IdealClass,
-    
-    /// 扰动序列 (u_0, u_1, ..., u_k)
     pub perturbations: Vec<IdealClass>,
-    
-    /// 最终状态 (S_final)
     pub final_state: IdealClass,
-    
     pub claimed_energy: Energy,
 }
 
@@ -51,8 +45,16 @@ impl OptimizationTrace {
     }
 
     pub fn record_step(&mut self, perturbation: IdealClass) {
-        self.final_state = self.final_state.compose(&perturbation);
-        self.perturbations.push(perturbation);
+        // [Note] 这里是在生成 Proof 阶段，如果出错了 panic 也是合理的（因为是自己的 Bug），
+        // 但为了健壮性，我们尽量 unwrap。生产环境应处理 Result。
+        if let Ok(new_state) = self.final_state.compose(&perturbation) {
+             self.final_state = new_state;
+             self.perturbations.push(perturbation);
+        } else {
+            // 如果记录步骤时出错，我们可以选择忽略或者记录一个错误标记
+            // 这里选择不做任何状态更新，相当于这一步没发生
+            eprintln!("Warning: Failed to record step due to algebraic error");
+        }
     }
 
     pub fn finalize(&mut self, final_energy: Energy) {
@@ -64,29 +66,15 @@ impl OptimizationTrace {
 pub struct TraceVerifier;
 
 impl TraceVerifier {
-    /// 严格验证流程
-    /// 1. Anchor Check: 验证 initial_state 是否由 context 确定性生成
-    /// 2. Graph Check: 验证每一步是否在允许的生成元集合 P 中
-    /// 3. Algebra Check: 重放群运算，确保宇宙一致性
-    /// 4. Energy Check: 审计最终能量
     pub fn verify<E>(
         trace: &OptimizationTrace, 
         energy_fn: E,
-        perturbation_count: usize // 用于重建 P 集合
+        perturbation_count: usize 
     ) -> VerificationResult
     where 
         E: Fn(&IdealClass) -> Energy,
     {
-        // --- 1. Anchor Check (Proof of Search Context) ---
-        // 攻击者不能随便拿一个 S_0 来跑，必须证明 S_0 源自这个 Context。
-        // 由于 IdealClass::from_hash 包含了复杂的素数搜索，这一步验证了 "Puzzle Input"。
-        
-        // 注意：这里为了演示，传入 p=0。实际生产中 p 应从 system parameters 获取或包含在 trace header 中
-        // 假设 lib.rs 中的 PyEvolver 默认 p=409 (或其他值)，这里需要对齐。
-        // 暂时假设 p 不影响代数结构（只影响投影），所以 IdealClass::from_hash 的第二个参数
-        // 实际上只在 Projector 里用到，但 IdealClass 初始化也需要一个占位符。
-        // 我们直接调用 IdealClass::spawn_universe 获取纯净的代数种子。
-        
+        // --- 1. Anchor Check ---
         let (expected_seed, _) = IdealClass::spawn_universe(&trace.context);
         
         if expected_seed != trace.initial_state {
@@ -96,17 +84,16 @@ impl TraceVerifier {
             };
         }
 
-        // --- 2. Graph Topology Setup (Reconstruct P) ---
-        // 验证者必须独立重建生成元集合，不能信任 Trace 里提供的任何元数据
+        // --- 2. Graph Topology Setup ---
         let discriminant = trace.initial_state.discriminant();
         let perturber = Perturber::new(&discriminant, perturbation_count);
-        let allowed_generators = perturber.get_generators(); // 需要 Perturber 公开此方法
+        let allowed_generators = perturber.get_generators(); 
 
-        // --- 3. Path Replay (Graph & Algebra Check) ---
+        // --- 3. Path Replay (Robust Replay) ---
         let mut calculated_state = trace.initial_state.clone();
         
         for (i, u) in trace.perturbations.iter().enumerate() {
-            // A. 检查 u 是否在 P 或 P^-1 中
+            // A. Check Membership
             let is_valid_generator = allowed_generators.contains(u);
             let is_valid_inverse = if !is_valid_generator {
                 let inverse = u.inverse();
@@ -122,16 +109,22 @@ impl TraceVerifier {
                 };
             }
 
-            // B. 执行群运算 (compose 内部现在会 Panic 如果宇宙不一致，
-            // 但为了更友好的错误处理，我们可以在这里捕获 panic，或者依赖前面的 ensure_universe)
-            // 由于我们是在 Rust 中，compose panic 会导致 crash。
-            // 理想情况下 compose 应该返回 Result，我们在 algebra.rs 里加了 ensure_same_universe。
-            // 这里我们显式检查一下以防万一。
-            if let Err(e) = calculated_state.ensure_same_universe(u) {
-                return VerificationResult::InvalidUniverse { details: e };
+            // B. Execute Algebra (Safely!)
+            match calculated_state.compose(u) {
+                Ok(new_state) => {
+                    calculated_state = new_state;
+                },
+                Err(EvolverError::CosmicMismatch(s, o)) => {
+                    return VerificationResult::InvalidUniverse { 
+                        details: format!("Step {}: Mismatch {} vs {}", i, s, o) 
+                    };
+                },
+                Err(e) => {
+                    return VerificationResult::AlgebraicFailure {
+                        details: format!("Step {}: {}", i, e)
+                    };
+                }
             }
-
-            calculated_state = calculated_state.compose(u);
         }
 
         // --- 4. Final Consistency Check ---
