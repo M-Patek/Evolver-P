@@ -10,15 +10,14 @@ pub mod will;
 pub mod body;
 pub mod dsl;
 
-/// The Python Interface for Evolver.
-///
-/// This acts as the facade, orchestrating the interaction between
-/// the Soul (Algebra), the Will (Optimizer), and the Body (Projector).
+/// Python Interface for Evolver (新一代)
+/// 
+/// 编排层：负责组装 Soul, Will, Body 并暴露给 Python。
 #[pyclass]
 pub struct PyEvolver {
     // System Parameters
-    p: u64,
-    k: u64,
+    p: u64, // 投影基数 (Prime Base)
+    k: u64, // 冗余参数 (保留接口兼容性)
     
     // Configuration
     vdf_difficulty: usize,
@@ -34,40 +33,43 @@ impl PyEvolver {
             p,
             k,
             vdf_difficulty: vdf_difficulty.unwrap_or(1),
-            search_steps: search_steps.unwrap_or(100), // Default to a reasonable search depth
+            search_steps: search_steps.unwrap_or(100),
         }
     }
 
     /// Align logic with the given context.
-    ///
+    /// 
     /// # Arguments
-    /// * `context` - The input string prompt (seed context).
-    /// * `mode` - Operating mode:
-    ///     - "fast" / "native": Identity dynamics + Geometric heuristic. Fast, good for code.
-    ///     - "prove" / "vdf": VDF dynamics + STP rigor. Slow, produces Proof-of-Will.
-    ///     - "hybrid": VDF dynamics + Geometric heuristic. Verifiable trace, but fast search.
-    /// * `depth` - Length of the logical path to generate.
+    /// * `context` - 输入提示词
+    /// * `mode` - "fast" (几何直觉) | "prove" (STP 严谨验证) | "hybrid"
+    /// * `depth` - 生成逻辑路径的长度
     #[pyo3(signature = (context, mode="prove", depth=16))]
     pub fn align(&self, context: String, mode: &str, depth: usize) -> PyResult<Vec<u64>> {
         // 1. Initialization (The Soul)
-        // Instantiate the algebraic seed from the context hash.
-        // (Assuming IdealClass has a constructor from hash/context)
+        // 从上下文哈希中通过“宇宙大爆炸”生成初始代数种子
         let seed = IdealClass::from_hash(&context, self.p); 
 
         // 2. Strategy Selection (The Decoupling)
-        // We select the "Time Strategy" (how time flows) and the "Will Strategy" (what is good).
+        // 决定使用哪种“时间流逝”方式 (Dynamics) 和“价值判断”标准 (Evaluator)
+        
+        // 为了创建 StpEvaluator，我们需要一个专用的 Projector 实例
+        // 因为 Evaluator trait object 需要拥有它
+        let eval_projector = Projector::new(self.p);
+
         let (dynamics, evaluator): (Box<dyn TimeEvolution>, Box<dyn Evaluator>) = match mode {
             "fast" | "native" => (
-                Box::new(IdentityDynamics),   // Time: Instant (No VDF)
-                Box::new(GeometricEvaluator), // Will: Intuitive (Geometric Form)
+                Box::new(IdentityDynamics),   // Time: 瞬时 (无 VDF)
+                Box::new(GeometricEvaluator), // Will: 直觉 (几何形状)
             ),
             "prove" | "vdf" => (
-                Box::new(VDFDynamics::new(self.vdf_difficulty)), // Time: Heavy (VDF)
-                Box::new(StpEvaluator),                          // Will: Rigorous (STP)
+                Box::new(VDFDynamics::new(self.vdf_difficulty)), // Time: 沉重 (VDF)
+                // Will: 严谨 (STP 逻辑检查)
+                // 注意：这里我们让 Evaluator 预演 `depth` 步来计算能量
+                Box::new(StpEvaluator::new(eval_projector, depth)), 
             ),
             "hybrid" => (
-                Box::new(VDFDynamics::new(self.vdf_difficulty)), // Time: Heavy (VDF for security)
-                Box::new(GeometricEvaluator),                    // Will: Intuitive (Fast Search)
+                Box::new(VDFDynamics::new(self.vdf_difficulty)), // Time: 沉重
+                Box::new(GeometricEvaluator),                    // Will: 直觉 (快速搜索)
             ),
             _ => return Err(pyo3::exceptions::PyValueError::new_err(
                 "Unknown mode. Available modes: 'fast', 'prove', 'hybrid'",
@@ -75,23 +77,25 @@ impl PyEvolver {
         };
 
         // 3. The Will (Optimization)
-        // The optimizer is now completely agnostic. It just minimizes the energy
-        // defined by the chosen evaluator.
+        // 优化器在 Cayley 图上游走，寻找能量最低的种子
         let optimizer = VapoOptimizer::new(evaluator, self.search_steps);
         let optimized_state = optimizer.search(&seed);
 
         // 4. Materialization (The Body)
-        // We use the optimized seed to spin out the universe (logic path).
+        // 将优化后的种子展开为时间序列
         let mut logic_path = Vec::with_capacity(depth);
         let mut state = optimized_state;
-        let projector = Projector::new(self.p);
+        
+        // 用于最终输出的投影仪
+        let out_projector = Projector::new(self.p);
 
         for t in 0..depth {
-            // Project the current algebraic state into the logical digit
-            let digit = projector.project(&state, t as u64);
+            // A. Projection: \Psi(S_t) -> d_t
+            let digit = out_projector.project(&state, t as u64);
             logic_path.push(digit);
 
-            // Evolve the state using the chosen dynamics
+            // B. Evolution: S_{t+1} = Dynamics(S_t)
+            // 这里使用了策略模式注入的 dynamics (Identity 或 VDF)
             state = dynamics.next(&state);
         }
 
@@ -99,7 +103,7 @@ impl PyEvolver {
     }
 }
 
-/// A module to wrap the Rust code for Python
+/// Python 模块定义
 #[pymodule]
 fn new_evolver(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<PyEvolver>()?;
