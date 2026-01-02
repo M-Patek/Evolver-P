@@ -4,39 +4,23 @@ use crate::body::adapter;
 use crate::dsl::stp_bridge::STPContext;
 use num_traits::ToPrimitive;
 
-/// Evaluator 定义了“意志”优化的目标函数接口。
 pub trait Evaluator {
-    /// 计算给定代数状态的能量。
-    /// Lower energy = Better state.
     fn evaluate(&self, state: &IdealClass) -> f64;
-    
     fn name(&self) -> &'static str;
 }
 
-/// 几何评估器 (Geometric Evaluator)
-/// 
-/// [Heuristic / Fast Mode]
-/// 不进行逻辑展开，仅根据代数状态在模曲线上的几何位置进行启发式打分。
-/// 例如：倾向于寻找“约化形式”(Reduced Forms) 或者特定的 \tau 分布。
 pub struct GeometricEvaluator;
-
 impl Evaluator for GeometricEvaluator {
     fn evaluate(&self, state: &IdealClass) -> f64 {
-        // 启发式：偏好 a 较小的解 (通常意味着约化得更好)
-        // 这是一个简单的 Proxy Metric。
         state.a.to_f64().unwrap_or(1e10)
     }
-
-    fn name(&self) -> &'static str {
-        "Geometric (Heuristic)"
-    }
+    fn name(&self) -> &'static str { "Geometric" }
 }
 
 /// STP 评估器 (Rigorous Evaluator)
 /// 
-/// [Rigorous / Slow Mode]
-/// 完整的闭环验证：
-/// Soul (State) -> Body (Digits) -> Adapter (Actions) -> DSL (STP Energy)
+/// 实现了 "Unified Energy Metric"：
+/// Energy = Barrier(Exact) + Residual(Heuristic)
 pub struct StpEvaluator {
     projector: Projector,
     action_count: usize,
@@ -44,45 +28,55 @@ pub struct StpEvaluator {
 }
 
 impl StpEvaluator {
-    /// 创建 STP 评估器
-    /// 
-    /// # Arguments
-    /// * `projector` - 用于将代数状态投影为数字序列
-    /// * `action_count` - 每次评估需要生成的逻辑动作数量 (序列长度)
     pub fn new(projector: Projector, action_count: usize) -> Self {
         Self { 
             projector, 
             action_count,
-            digits_per_action: 3, // 假设每个动作平均消耗 3 个数字 (Op, Param1, Param2)
+            digits_per_action: 3, 
         }
     }
 }
 
 impl Evaluator for StpEvaluator {
     fn evaluate(&self, state: &IdealClass) -> f64 {
-        // 1. Body Projection: Materialize algebra into digital sequence
-        // 需要生成的总数字量
         let total_digits = self.action_count * self.digits_per_action;
-        let digits = self.projector.project_sequence(state, total_digits);
-
-        // 2. Adapter Decoding: Convert digits to Logic Actions
-        // 将线性数字流切分为动作块
-        let actions: Vec<_> = digits
+        let mut current_state = state.clone();
+        
+        // --- 1. 计算离散势垒 (Discrete Barrier) ---
+        // 使用 Project_Exact: 只有完美的代数状态才能通过 STP 检查
+        let mut exact_path = Vec::with_capacity(total_digits);
+        for t in 0..total_digits {
+            exact_path.push(self.projector.project_exact(&current_state, t as u64));
+            current_state = current_state.square();
+        }
+        
+        let actions: Vec<_> = exact_path
             .chunks(self.digits_per_action)
             .map(|chunk| adapter::path_to_proof_action(chunk))
             .collect();
 
-        // 3. DSL Verification: Calculate Logic Energy via STP
         let mut context = STPContext::new();
-        let energy = context.calculate_energy(&actions);
+        let barrier_energy = context.calculate_energy(&actions);
 
-        // 4. Combined Energy: Barrier + Residual
-        // 这里目前只返回 STP 能量 (离散势垒)，
-        // 实际应用中可能混合几何残差以提供梯度引导。
-        energy
+        // 如果已经是完美逻辑 (Barrier == 0)，直接返回 0 (Done)
+        if barrier_energy < 1e-6 {
+            return 0.0;
+        }
+
+        // --- 2. 计算连续残差 (Continuous Residual) ---
+        // 使用 Project_Heuristic: 提供梯度方向引导优化器进入正确的 Basin
+        // 这里简化实现：我们只看第一步的启发式投影与目标的“距离”
+        // (注：这只是一个示意，完整的 Residual 计算需要定义 Target Feature)
+        
+        // Reset state for heuristic check
+        let heuristic_digit = self.projector.project_heuristic(state, 0);
+        let residual_energy = (heuristic_digit as f64) * 0.001; // 极小的权重，仅作 Tie-breaker
+
+        // Total J(S)
+        barrier_energy + residual_energy
     }
 
     fn name(&self) -> &'static str {
-        "STP (Rigorous)"
+        "STP (Split Projection)"
     }
 }
