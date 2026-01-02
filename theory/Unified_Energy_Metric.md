@@ -1,94 +1,75 @@
-# Unified Energy Metric: Reconciling Topology and Logic
+# Unified Energy Metric: The Barrier-Residual Model
 
 "The Will needs a Slope, the Truth needs a Threshold."
 
-## 1. The Conflict (Problem Statement)
+## 1. The Definitions
 
-Previous documentation presented two conflicting definitions of System Energy ($E$):
+To strictly align the implementation (`src/dsl/stp_bridge.rs`) with the theoretical specification, we define the Total System Energy $J(S)$ as a sum of a Discrete Barrier and a Continuous Residual.
 
-**Topological Definition (Rigorous_Logic_Semantics):**
+$$J(S) = E_{barrier}(\Psi(S)) + E_{residual}(\Psi(S))$$
 
-$$E_{topo} = ||\Psi(S) - \tau||^2$$
+### 1.1 The Discrete Barrier ($E_{barrier}$)
 
-* **Nature:** Continuous, semi-definite.
-* **Purpose:** Provides the "gradient" (or finite difference slope) required for VAPO to perform heuristic descent on the Cayley Graph.
+The Barrier represents the Logical Validity State. It is a discrete step function derived from the rigor of the STP (Semi-Tensor Product) engine and the Parser.
 
-**Logical Definition (Energy_Definition / Code):**
+Values are strictly defined as:
 
-$$E_{logic} \in \{0, 1, \dots\} + \text{Penalty}$$
+| Value ($B$) | State Meaning | Condition |
+| :--- | :--- | :--- |
+| **0.0** | TRUTH (Valid) | Parser OK AND Logic OK ($E_{STP} = 0$). |
+| **10.0** | SYNTAX ERROR | Parser Failed (e.g., structural mismatch, invalid opcode). |
+| **100.0** | LOGICAL FALSE | Parser OK, but Logic Contradiction ($E_{STP} > 0$). |
 
-* **Nature:** Discrete, step-function.
-* **Purpose:** Rigorous verification. Logical truth is binary; a statement is either valid or invalid.
+**Note:** These constants (10.0, 100.0) act as "energy plateaus" that the optimizer seeks to fall off of.
 
-**The Paradox:** If $E = E_{logic}$, the optimizer cannot see the "direction" of improvement.
-If $E = E_{topo}$, $E=0$ does not strictly imply Logical Truth (only geometric proximity).
+### 1.2 The Continuous Residual ($E_{residual}$)
 
----
+The Residual represents the Geometric Proximity. It serves as a tie-breaker for invalid states, allowing the VAPO algorithm to perform hill-climbing even when the logic is broken.
 
-## 2. The Unified Definition (Resolution)
-
-To resolve this, we define the Total System Energy $J(S)$ as a Lagrangian-like Hybrid Potential. This definition ensures that the global minimum strictly corresponds to logical truth, while the energy landscape remains informative for search.
-
-Let $S$ be the algebraic state.
-Let $\Psi(S)$ be the projected logical path.
-Let $\mathcal{V}(\cdot)$ be the Logical Violation Function (returning 0 for valid, 1 for invalid).
-
-We define the Unified Energy $J(S)$ as:
-
-$$J(S) = \mathcal{V}(\Psi(S)) \cdot \left[ \alpha + \beta \cdot || \Psi(S) - \text{Target}_{approx} ||^2 \right]$$
+$$E_{residual}(S) = \beta \cdot || \mathbf{F}(S) - \mathbf{F}_{target} ||^2$$
 
 Where:
-
-* $\alpha > 0$ is the Validity Barrier (The "Penalty" in code, e.g., 100.0).
-* $\beta > 0$ is the Guidance Coefficient (Scaling the geometric distance).
-* $||\cdot||^2$ is the Euclidean distance in the projected vector space $\mathbb{Z}_p^k$ (treated as $\mathbb{R}^k$ for the metric).
-
-### 2.1 Properties of the Unified Metric
-
-**Strict Truth Condition (Rigorousness):**
-
-$$J(S) = 0 \iff \mathcal{V}(\Psi(S)) = 0$$
-
-* **Proof:** If Logic is True, $\mathcal{V}=0$, so $J(S) = 0 \cdot [...] = 0$.
-* If Logic is False, $\mathcal{V}=1$. Since $\alpha > 0$ and norm is non-negative, $J(S) \ge \alpha > 0$.
-* **Conclusion:** The proposition "$E=0 \iff$ Logic is True" holds strictly.
-
-**Searchability (Slope):**
-For any two invalid states $S_1, S_2$ where $\mathcal{V}=1$:
-
-$$J(S_1) < J(S_2) \iff ||\Psi(S_1) - \tau|| < ||\Psi(S_2) - \tau||$$
-
-This preserves the Lipschitz property required by VAPO. Even when the logic is currently "wrong," the optimizer can prefer "wrong but closer" states over "wrong and far," preventing blind random walks.
+* $\mathbf{F}(S)$ is the Continuous Modular Embedding of state $S$.
+* $\beta$ is a small scaling factor (e.g., $0.01$) ensuring $E_{residual}$ never exceeds the gap between Barrier levels.
 
 ---
 
-## 3. Implications for Implementation
+## 2. The Logic of Optimization
 
-The current implementation in `src/dsl/stp_bridge.rs` performs:
+The optimizer seeks to minimize $J(S)$. The landscape implies a priority queue of constraints:
+
+1.  **Priority 1: Fix Logic (100.0 -> 0.0)**
+    If the system is in a "Logical False" state, the optimizer is driven by the huge energy drop of 100.0 to find any state that is logically valid.
+2.  **Priority 2: Fix Syntax (10.0 -> 0.0)**
+    If the system is outputting garbage (Syntax Error), the drop of 10.0 encourages finding well-formed structures.
+3.  **Priority 3: Optimize Intuition (Residual)**
+    If multiple states have the same Barrier level (e.g., both are False), the optimizer chooses the one with the smaller $E_{residual}$. This embodies the principle: "Even if you are wrong, be roughly in the right neighborhood."
+
+---
+
+## 3. Implementation Alignment
+
+The implementation in `src/dsl/stp_bridge.rs` MUST reflect this structure:
 
 ```rust
-// Current Implementation (Simplified)
-let dist = calculate_squared_distance();
-if dist < threshold {
-    return 0.0; // Logic Valid
-} else {
-    return 100.0; // Logic Invalid (Information Loss!)
-}
-```
+pub fn calculate_energy(state: &IdealClass, target: &FeatureVector) -> f64 {
+    let projected_path = project(state);
+    
+    // 1. Check Syntax
+    let ast = match parse(&projected_path) {
+        Ok(ast) => ast,
+        Err(_) => return 10.0 + geometric_distance(state, target),
+    };
 
-This causes the "Flat Landscape" problem. To align with this rigorous definition, the implementation must be updated to return the Residual Energy:
+    // 2. Check Logic (STP)
+    let logic_violation = stp_check(&ast); // Returns true if contradiction found
+    
+    if logic_violation {
+        return 100.0 + geometric_distance(state, target);
+    }
 
-```rust
-// Corrected Implementation (Unified Metric)
-let dist_sq = calculate_squared_distance();
-let logical_violation = check_stp_constraints();
-
-if logical_violation {
-    // Return Barrier + Residual to guide the Will
-    return 100.0 + dist_sq; 
-} else {
-    // Truth found
-    return 0.0;
+    // 3. Truth
+    return 0.0; // Strictly 0.0 means Success.
 }
 ```
 
@@ -96,7 +77,5 @@ if logical_violation {
 
 ## 4. Summary
 
-* Logic is discrete (0 or 1).
-* Geometry is continuous (Distance).
-* Evolver uses Geometry to find Logic.
-* Unified Energy is the sum of a discrete Barrier and a continuous Residual.
+* **No Gradients:** The optimization process does not use derivatives. It uses the magnitude of $J(S)$ to greedily select neighbors.
+* **Correct-by-Construction:** A result is only accepted if $J(S) < 1.0$ (effectively 0.0), which mathematically guarantees that $E_{barrier} = 0$.
