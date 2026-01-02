@@ -10,6 +10,8 @@ use crate::dsl::stp_bridge::STPContext;
 use crate::will::perturber::EnergyEvaluator;
 use crate::dsl::schema::{self, ProofAction};
 use crate::body::adapter::path_to_proof_action;
+// [Refactor] 引入 Tracer 以解耦搜索与证明记录
+use crate::will::tracer::{SilentTracer, ProvenTracer, WillTracer};
 
 // 引入新的导航模块
 use crate::body::navigator::NavigationFeatures;
@@ -38,7 +40,21 @@ impl EnergyEvaluator for STPEvaluator {
 }
 
 // ==========================================
-// PyProofBundle 定义
+// [NEW] EvolvedPath: 轻量级原生输出
+// ==========================================
+/// 原生逻辑路径输出，不包含繁重的 Proof 元数据。
+/// 适用于不需要链上验证的常规生成场景。
+#[pyclass(name = "EvolvedPath")]
+#[derive(Clone)]
+pub struct PyEvolvedPath {
+    #[pyo3(get)]
+    pub logic_path: Vec<String>,
+    #[pyo3(get)]
+    pub energy: f64,
+}
+
+// ==========================================
+// PyProofBundle 定义 (保留用于可验证场景)
 // ==========================================
 
 #[pyclass(name = "ProofBundle")]
@@ -81,7 +97,8 @@ impl From<schema::ProofBundle> for PyProofBundle {
 #[pymodule]
 fn new_evolver(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<PyEvolver>()?;
-    m.add_class::<PyProofBundle>()?; 
+    m.add_class::<PyProofBundle>()?;
+    m.add_class::<PyEvolvedPath>()?; // 注册新类
     Ok(())
 }
 
@@ -90,16 +107,17 @@ struct PyEvolver {
     k: usize,
 }
 
-#[pymethods]
 impl PyEvolver {
-    #[new]
-    fn new(k: usize) -> PyResult<Self> {
-        Ok(PyEvolver { k })
-    }
-
-    fn align(&self, context: String) -> PyResult<PyProofBundle> {
+    /// 内部通用演化循环
+    /// 使用泛型 T: WillTracer 来适配 "静默模式" 和 "证明模式"
+    /// 避免了代码重复。
+    fn evolve<T: WillTracer>(
+        &self, 
+        context: &str, 
+        tracer: &mut T
+    ) -> (f64, Vec<String>, ClassGroupElement, ClassGroupElement, String, String) {
         // 1. Inception
-        let (seed, universe) = ClassGroupElement::spawn_universe(&context);
+        let (seed, universe) = ClassGroupElement::spawn_universe(context);
         
         let ctx_hash = universe.context_hash;
         let discriminant_hex = universe.discriminant.to_str_radix(16);
@@ -125,31 +143,17 @@ impl PyEvolver {
         for _ in 0..max_iterations {
             let (candidate_state, gen_idx) = optimizer.perturb();
             
-            // [NEW] Canonical Modular Projection
-            // 使用新的 navigator -> topology 管道
+            // Canonical Modular Projection & Time Unfolding
             let mut path_digits = Vec::new();
-            
-            // 为了生成逻辑路径，我们在这里做一个简单的时间展开 (Time Unfolding)
-            // 注意：Will 的搜索是在静态图上，但评估需要看到这一点的"逻辑结果"
             let mut time_state = candidate_state.clone();
             for t in 0..config.depth {
-                 // 在每一步时间演化中，投影当前状态
                  let digit = project_state_to_digits(&time_state, &config, t as u64);
                  path_digits.push(digit);
-                 
-                 // 简单的群操作模拟时间演化 (Repeated Squaring or simple composition)
-                 // 这里简化为保持状态不变或简单变换，视具体 Time Dynamics 定义而定
-                 // 真实的 VDF 应该在这里做 square()，为了演示保持简单
                  time_state = time_state.square(); 
             }
             
-            // 评估能量
             let energy = evaluator.evaluate(&path_digits);
 
-            // [NEW] Heuristic Guidance (Navigator)
-            // 除了 STP 的硬能量，我们还可以加入 Navigation Features 的几何势能
-            // 这里暂且只用 Logic Energy，但底层机制已经 ready
-            
             if energy < best_energy {
                 best_energy = energy;
                 best_state = candidate_state.clone();
@@ -157,9 +161,10 @@ impl PyEvolver {
                 let action = path_to_proof_action(&path_digits);
                 best_logic_path_strings = vec![format!("{:?}", action)];
                 
-                optimizer.accept(candidate_state, gen_idx);
+                // [Decoupled]: 这里不再直接 push 到 trace，而是通过接口通知
+                optimizer.accept(tracer, candidate_state, gen_idx);
             } else {
-                optimizer.reject();
+                optimizer.reject(tracer);
             }
 
             if best_energy == 0.0 {
@@ -167,22 +172,51 @@ impl PyEvolver {
             }
         }
 
-        // 4. Revelation
-        let generator_spec = schema::GeneratorSpec {
-            algorithm_version: "v2.1_modular_feature".to_string(), // Updated version
-            count: 50,
-            max_norm: None,
-        };
+        (best_energy, best_logic_path_strings, best_state, start_seed_clone, ctx_hash, discriminant_hex)
+    }
+}
+
+#[pymethods]
+impl PyEvolver {
+    #[new]
+    fn new(k: usize) -> PyResult<Self> {
+        Ok(PyEvolver { k })
+    }
+
+    /// 默认对齐方法：原生轻量模式
+    /// 仅返回逻辑路径，不记录 Proof Trace，性能最优。
+    fn align(&self, context: String) -> PyResult<PyEvolvedPath> {
+        // 使用 SilentTracer，零开销
+        let mut tracer = SilentTracer;
+        
+        let (energy, logic_path, _, _, _, _) = self.evolve(&context, &mut tracer);
+
+        Ok(PyEvolvedPath {
+            logic_path,
+            energy,
+        })
+    }
+
+    /// 带证明的对齐方法：可验证模式
+    /// 记录完整轨迹，返回 ProofBundle，可用于构建 Proof of Will。
+    fn align_with_proof(&self, context: String) -> PyResult<PyProofBundle> {
+        // 使用 ProvenTracer，记录每一步
+        let mut tracer = ProvenTracer::new();
+        
+        let (energy, logic_path, final_state, start_seed, ctx_hash, disc_hex) = self.evolve(&context, &mut tracer);
+
+        // 获取生成元规格 (用于验证者重构环境)
+        let generator_spec = VapoOptimizer::default_spec();
 
         let bundle = schema::ProofBundle {
             context_hash: ctx_hash,
-            discriminant_hex: discriminant_hex,
-            start_seed_a: start_seed_clone.a.to_string(),
-            final_state_a: best_state.a.to_string(),
-            generator_spec: generator_spec,
-            perturbation_trace: optimizer.trace.clone(),
-            logic_path: best_logic_path_strings,
-            energy: best_energy,
+            discriminant_hex: disc_hex,
+            start_seed_a: start_seed.a.to_string(),
+            final_state_a: final_state.a.to_string(),
+            generator_spec,
+            perturbation_trace: tracer.trace, // 从 tracer 中提取轨迹
+            logic_path,
+            energy,
         };
 
         Ok(PyProofBundle::from(bundle))
