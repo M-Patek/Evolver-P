@@ -1,31 +1,42 @@
 [package]
-name = "new_evolver"
-version = "0.3.1" # Patch: Security & Interface Fixes
+name = "evolver"
+version = "0.1.0"
 edition = "2021"
-
-# 编译为 Python 扩展库 (.so / .pyd)
-[lib]
-name = "new_evolver"
-crate-type = ["cdylib"]
+authors = ["M-Patek"]
+description = "A Formally Verifiable Evolutionary Solver based on STP and Ideal Class Groups"
+license = "Proprietary"
 
 [dependencies]
-# 核心数据序列化
+# 核心代数库 (原有的)
+num-traits = "0.2"
+num-bigint = "0.4"
+# num-rational = "0.4" # 喵！已被抛弃，精度不够且不支持超越函数
+
+# [NEW] 引入 VAPO 的救命稻草：高精度计算库
+# features "float" 开启 MPFR 浮点数支持
+# features "integer" 开启 GMP 整数支持
+rug = { version = "1.19", features = ["float", "integer", "std"] }
+
+# 序列化支持
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
-# 基础数学与随机数 (用于 VAPO 扰动)
+# 并行计算支持 (Rayon)
+rayon = "1.7"
+
+# 随机数生成
 rand = "0.8"
-num-integer = "0.1"
-num-bigint = "0.4"
-num-traits = "0.2"
 
-# 密码学安全 (Fix Problem 1: 引入 SHA-2 家族)
-sha2 = "0.10"
-digest = "0.10"
+# 命令行参数解析
+clap = { version = "4.3", features = ["derive"] }
 
-# Python FFI 绑定
-pyo3 = { version = "0.20.0", features = ["extension-module"] }
-uuid = { version = "1.0", features = ["v4", "fast-rng"] }
-
-# 通用错误处理
+# 错误处理
+thiserror = "1.0"
 anyhow = "1.0"
+
+# Python 绑定 (用于与外部 AI 生态交互)
+pyo3 = { version = "0.19", features = ["extension-module"] }
+
+[lib]
+name = "evolver"
+crate-type = ["cdylib", "rlib"]
