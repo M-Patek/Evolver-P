@@ -31,10 +31,22 @@ impl PyEvolver {
         }
     }
 
+    /// 对齐函数
+    /// Context -> Algebraic Seed -> Search -> Valid Logic Path
     #[pyo3(signature = (context, mode="prove", depth=16))]
     pub fn align(&self, context: String, mode: &str, depth: usize) -> PyResult<Vec<u64>> {
+        // 1. 生成初始种子
         let seed = IdealClass::from_hash(&context, self.p); 
+        
+        // 2. 初始化投影仪
+        // [Fix] Projector 现在包含 SHA-256 逻辑
         let eval_projector = Projector::new(self.p);
+
+        // 3. 构造 Evaluator 和 Dynamics
+        // [Fix] 显式构建 target_features。
+        // 这里我们使用 Context Hash 生成的种子的连续特征作为“目标意图”。
+        // 这意味着 VAPO 会倾向于寻找几何上接近初始 Context，但逻辑上合法的状态。
+        let target_features = eval_projector.project_continuous(&seed);
 
         let (dynamics, evaluator): (Box<dyn TimeEvolution>, Box<dyn Evaluator>) = match mode {
             "fast" | "native" => (
@@ -43,8 +55,8 @@ impl PyEvolver {
             ),
             "prove" | "vdf" => (
                 Box::new(VDFDynamics::new(self.vdf_difficulty)), 
-                // Evaluator 内部现在使用 Split Projection 逻辑
-                Box::new(StpEvaluator::new(eval_projector, depth)), 
+                // [Fix] 参数对齐：传入 projector, depth, target_features
+                Box::new(StpEvaluator::new(eval_projector, depth, target_features)), 
             ),
             "hybrid" => (
                 Box::new(VDFDynamics::new(self.vdf_difficulty)), 
@@ -55,19 +67,23 @@ impl PyEvolver {
             )),
         };
 
-        // The Will searches...
+        // 4. 执行意志搜索 (The Will)
         let optimizer = VapoOptimizer::new(evaluator, self.search_steps);
-        let optimized_state = optimizer.search(&seed);
+        
+        // [Fix] 处理 search 返回的元组 (state, trace)
+        let (optimized_state, _trace) = optimizer.search(&seed);
+        // 注意：在生产环境中，_trace 应该被序列化并返回给 Python 端作为 ProofBundle。
+        // 这里为了简化接口，只返回逻辑路径。
 
-        // The Body manifests...
+        // 5. 显化躯体 (The Body)
         let mut logic_path = Vec::with_capacity(depth);
         let mut state = optimized_state;
         
-        // [CRITICAL] Output Generation must use EXACT projection
+        // 输出阶段使用全新的 Projector 实例（尽管是无状态的，但保持逻辑清晰）
         let out_projector = Projector::new(self.p);
 
         for t in 0..depth {
-            // 使用 project_exact 确保输出的逻辑是代数状态的唯一指纹
+            // 使用 project_exact (SHA-256) 生成最终路径
             let digit = out_projector.project_exact(&state, t as u64);
             logic_path.push(digit);
 
