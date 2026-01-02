@@ -1,91 +1,88 @@
-# Evolver: Algebraic Logic Generation Engine
+Evolver: A Formally Verifiable Evolutionary Solver
 
-"Logic is not corrected; it is evolved."
+"赋予数学模型以进化的意志。"
 
-Evolver is a native algebraic logic generation engine based on the Hyper-Tensor Protocol (HTP).
+Evolver 是一个基于 半张量积 (Semi-Tensor Product, STP) 的通用系统进化框架。它将复杂的系统动力学建模为严谨的代数结构，并利用自适应扰动算法在拓扑空间中寻找最优演化路径。
 
-Unlike traditional "Neuro-Symbolic" systems, Evolver no longer acts as a "correction sidecar" or a "probabilistic patcher" for LLMs. It is an independent generative core that "grows" mathematically certain logical paths directly by performing evolution and search on rigorous algebraic manifolds.
+与传统的黑盒优化器不同，Evolver 强调 形式化可验证性 (Formal Verifiability)。
 
-## 🏛️ Core Architecture: The Tripartite Soul
+核心理念 (Core Philosophy)
 
-The system architecture mimics the structure of a living organism, consisting of three core components: Soul (Algebraic Kernel), Will (Optimization Intent), and Body (Topological Form).
+1. The Trinity Architecture
 
-### 1. The Soul (Algebraic Kernel)
+Evolver 将系统解耦为三个正交的维度：
 
-**Code:** `src/soul/algebra.rs`
+Body (结构): 定义系统的拓扑空间与状态表征。它是进化的载体。
 
-**Mathematical Entity:** Elements in the Ideal Class Group
-$Cl(\Delta)$
-of imaginary quadratic fields.
+Soul (法则): 定义系统的动力学规则与约束。基于 STP 代数，保证了系统演化的 逻辑健全性 (Soundness)。
 
-**Feature:** Operates in a Group of Unknown Order, providing the cryptographic foundation for the "Proof of Will".
+Will (意志): 定义系统的进化方向。通过估值自适应扰动 (v-PuNNs)，在解空间中进行有目的的探索。
 
-### 2. The Will (VAPO Optimizer)
+2. Trust Model
 
-**Code:** `src/will/optimizer.rs`
+我们不承诺“构造即正确 (Correct-by-Construction)”，而是提供分层的信任模型：
 
-**Algorithm:** VAPO (Valuation-Adaptive Perturbation Optimization).
+Soundness: 系统的每一步演化都严格遵循预定义的代数法则（不会出现非法状态）。
 
-**Responsibility:** Searching for Truth.
+Verifiability: 系统的进化路径生成一个加密学意义上的 Trace，第三方可以低成本验证结果的真实性。
 
-**Mechanism:** It performs a discrete walk on the Cayley Graph. Because the group order is unknown, this search cannot be "faked" or "shortcut"—it represents genuine computational effort.
+安装与使用 (Installation & Usage)
 
-### 3. The Body (Topological Projector)
+环境要求
 
-**Code:** `src/body/`
+Evolver 基于 Rust 构建，请确保本地环境已安装 Rust toolchain (1.70+)。
 
-**Mechanism:** Collapses the optimized algebraic state into human-readable digit sequences through Linear Congruence Projection, ensuring that algebraic symmetries map to logical structures.
+构建项目
 
-## 🛡️ Security Model: Proof of Will
+由于本项目为私有专有软件，请确保你拥有源代码的访问权限。
 
-Evolver introduces a new security paradigm for generated logic:
+# 进入项目根目录
+cd evolver
 
-**The Problem:** How do we know an AI actually "reasoned" through a problem rather than just retrieving a memorized answer or hallucinating?
+# Build release version
+cargo build --release
 
-**The Solution:** Proof of Will (PoW) via Algebraic VDFs.
 
-* **Unknown Order:** The algebraic space is constructed such that its total size (Class Number) is unknown.
-* **Sequentiality:** Evolution involves repeated squaring
-    $S \to S^2$
-    , acting as a Verifiable Delay Function (VDF). This forces the generation process to be sequential and non-parallelizable.
-* **Unforgeability:** An attacker cannot produce a valid "Proof Bundle" (a trace of perturbations leading to Zero Energy) without actually running the search algorithm. The Proof Bundle is a cryptographic certificate of the computational work of reasoning.
+示例：定义一个简单的布尔网络
 
-## 🔄 Workflow: The Generation Loop
+// 定义状态空间 (Body)
+let topology = Topology::new(2); // 2-node network
 
-1.  **Inception:** User inputs Context. System derives a unique Discriminant
-    $\Delta$
-    .
-2.  **Seeding:** Initial State
-    $S_0$
-    is born from the Context Hash.
-3.  **The Will's Journey (Search):** The VAPO optimizer performs a heuristic walk on the static Cayley Graph to find the optimal seed. To preserve metric continuity (Lipschitz property), this step is decoupled from time evolution.
-    $$S_{k+1} = S_k \circ \epsilon$$
-4.  **Materialization (Time):** Once a candidate state is evaluated or selected, it is unfolded in time (repeated squaring) to generate the logical path.
-    $$O_{t+1} = O_t^2$$
-5.  **Convergence:** The process stops when the projected logic from the time-unfolded path satisfies
-    $E_{STP} = 0$
-    .
-6.  **Artifact:** Returns the logical path AND the algebraic trace as the Proof of Will.
+// 定义动力学规则 (Soul)
+// 使用 STP 桥接器将逻辑规则转换为代数矩阵
+let rules = StpBridge::compile("x1(t+1) = x1(t) AND x2(t)");
 
-## 📦 Quick Start (Python API)
+// 注入意志 (Will)
+// 目标：寻找收敛到不动点的路径
+let optimizer = Optimizer::new()
+    .with_strategy(Strategy::ValuationAdaptive)
+    .target(Energy::Zero);
 
-```python
-# Requires Rust toolchain installed
-# maturin develop --release
+let result = optimizer.evolve(topology, rules);
 
-from new_evolver import PyEvolver
+match result {
+    VerifiedSuccess(trace) => println!("Evolution successful: {:?}", trace),
+    ValidFailure(trace, energy) => println!("Converged to local optima, E={}", energy),
+    _ => println!("Evolution failed"),
+}
 
-# Initialize with standard parameters
-engine = PyEvolver(p=409, k=19)
 
-# Align logic.
-# This operation performs the actual algebraic search (The Will).
-# The time taken is proportional to the logical complexity (Distance on the Graph).
-path = engine.align("Prove that the sum of two Odd numbers is Even.")
+理论基础 (Theoretical Foundations)
 
-print(f"Generated Logic Path: {path}")
-```
+Evolver 的核心引擎建立在以下数学理论之上：
 
-## 📜 License
+Semi-Tensor Product of Matrices: 允许不同维度的矩阵进行运算，统一了逻辑与代数。
 
-M-Patek PROPRIETARY LICENSE Copyright © 2025 M-Patek.
+Valuation-Adaptive Perturbation: 一种基于能量景观几何特征的自适应搜索策略。
+
+Topological Dynamics: 在流形或图结构上定义的动力学系统。
+
+详细的数学推导请参阅 theory/ 目录下的内部技术文档。
+
+版权说明 (Copyright & License)
+
+Copyright © 2023-Present Evolver Team. All Rights Reserved.
+
+本项目为 私有专有软件 (Proprietary Software)。
+未经版权所有者明确书面许可，严禁复制、分发、修改或将本软件的任何部分用于商业用途。
+本软件包含受法律保护的商业机密。
