@@ -3,55 +3,61 @@ use num_traits::{Zero, Signed};
 use crate::soul::algebra::ClassGroupElement;
 use crate::will::perturber::{self, EnergyEvaluator};
 use crate::dsl::schema::GeneratorSpec;
+use crate::will::tracer::WillTracer;
 use std::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
 use rand::{Rng, SeedableRng};
 use rand::rngs::StdRng;
 
 /// VAPO 优化器结构体
-/// 负责在凯莱图上进行有状态的搜索，并记录“意志的轨迹”。
+/// 负责在凯莱图上进行有状态的搜索。
+///
+/// [Refactor Note]:
+/// 移除了 `trace` 和 `generator_spec` 字段。
+/// 轨迹记录现在通过 `WillTracer` 接口由外部注入。
+/// 这使得优化器在 "原生模式" 下零开销，且更专注于搜索本身。
 pub struct VapoOptimizer {
     pub current_seed: ClassGroupElement,
-    pub trace: Vec<usize>, // 记录选择的 generator 索引，用于 Proof 重放
+    // trace: Vec<usize>, // 已移除：通过 WillTracer 解耦
     generators: Vec<ClassGroupElement>, // 缓存生成元
     iteration_count: usize,
     
-    // [Alignment Fix]: 记录生成元规格，以便包含在 ProofBundle 中
-    pub generator_spec: GeneratorSpec,
+    // generator_spec: GeneratorSpec, // 已移除：元数据移至 ProofBundle 构建逻辑
 }
 
 impl VapoOptimizer {
+    /// 默认使用的生成元数量，与 production 环境保持一致
+    pub const DEFAULT_GEN_COUNT: usize = 50;
+
     /// 初始化优化器
     pub fn new(start_seed: ClassGroupElement) -> Self {
         // 在初始化时预生成所有扰动算子 (Generators)
         let delta = start_seed.discriminant();
         
         // 定义生成策略
-        // 注意：这里的 count 应该与 production 环境保持一致，或者作为参数传入。
-        // 为了修复可验证性，我们在这里硬编码的同时记录下来。
-        let gen_count = 50;
-        let algorithm_version = perturber::ALGORITHM_VERSION.to_string();
-        
-        let generators = perturber::generate_perturbations(&delta, gen_count);
-
-        let generator_spec = GeneratorSpec {
-            algorithm_version,
-            count: gen_count,
-            max_norm: None,
-        };
+        let generators = perturber::generate_perturbations(&delta, Self::DEFAULT_GEN_COUNT);
 
         Self {
             current_seed: start_seed,
-            trace: Vec::new(),
             generators,
             iteration_count: 0,
-            generator_spec,
         }
     }
 
-    /// 获取当前的生成元规格
-    pub fn get_spec(&self) -> GeneratorSpec {
-        self.generator_spec.clone()
+    /// 获取优化器使用的默认生成元规格
+    /// 这是一个辅助方法，用于外部 (PyEvolver) 构建 ProofBundle 时获取版本信息，
+    /// 而不需要优化器实例持有该数据。
+    pub fn default_spec() -> GeneratorSpec {
+        GeneratorSpec {
+            algorithm_version: perturber::ALGORITHM_VERSION.to_string(),
+            count: Self::DEFAULT_GEN_COUNT,
+            max_norm: None,
+        }
+    }
+
+    /// 获取当前的生成元列表长度
+    pub fn generator_count(&self) -> usize {
+        self.generators.len()
     }
 
     /// 扰动 (Perturb): 意志的决策
@@ -59,11 +65,6 @@ impl VapoOptimizer {
     /// [Hash Strategy Alignment]:
     /// 这里实现了 "Chaotic Determinism" (混沌决定论)。
     /// 意志的下一步不仅仅是随机的，而是由当前的代数状态(Soul)决定的。
-    /// 我们对当前的 (a, b) 进行哈希，作为 RNG 的种子。
-    /// 
-    /// 这样做的目的是：
-    /// 1. **可重放性**: 如果验证者重放 Trace，每一步的状态都确定，虽然验证不需要重放 RNG，但调试需要。
-    /// 2. **结构耦合**: 搜索方向内在于代数结构本身。
     pub fn perturb(&mut self) -> (ClassGroupElement, usize) {
         let gen_count = self.generators.len();
         if gen_count == 0 {
@@ -71,9 +72,7 @@ impl VapoOptimizer {
         }
 
         // 1. 从当前状态提取熵 (State Hash)
-        // 注意：这里使用 DefaultHasher 做内部状态哈希是可以的，
-        // 因为这不涉及 Proof 的抗碰撞性，只涉及搜索路径的选择策略。
-        // 但为了严谨，我们混合 iteration_count 防止死循环。
+        // 混合 iteration_count 防止死循环
         let mut hasher = DefaultHasher::new();
         self.current_seed.a.hash(&mut hasher);
         self.current_seed.b.hash(&mut hasher);
@@ -84,8 +83,6 @@ impl VapoOptimizer {
         let mut rng = StdRng::seed_from_u64(state_hash);
 
         // 3. 选择扰动 (Will's Choice)
-        // VAPO 策略：在 active window 内选择。
-        // 这里简化为全域加权选择。
         let idx = rng.gen_range(0..gen_count);
         let perturbation = &self.generators[idx];
 
@@ -94,15 +91,22 @@ impl VapoOptimizer {
         (candidate, idx)
     }
 
-    /// 接受 (Accept)：确认这一步有效，更新状态并记录轨迹
-    pub fn accept(&mut self, new_state: ClassGroupElement, generator_idx: usize) {
+    /// 接受 (Accept)：确认这一步有效，更新状态并通知 Tracer
+    /// 
+    /// [Decoupling]: 这里引入泛型 T: WillTracer。
+    /// - 如果传入 SilentTracer，编译器会优化掉调用，零开销。
+    /// - 如果传入 ProvenTracer，则记录轨迹。
+    pub fn accept<T: WillTracer>(&mut self, tracer: &mut T, new_state: ClassGroupElement, generator_idx: usize) {
         self.current_seed = new_state;
-        self.trace.push(generator_idx);
         self.iteration_count += 1;
+        
+        // 通知外部观察者
+        tracer.on_accept(generator_idx);
     }
     
-    // 增加计数器，即使拒绝也算一步，用于模拟退火的温度控制和随机数混合
-    pub fn reject(&mut self) {
+    /// 拒绝 (Reject)：通知 Tracer 并更新计数器
+    pub fn reject<T: WillTracer>(&mut self, tracer: &mut T) {
         self.iteration_count += 1;
+        tracer.on_reject();
     }
 }
