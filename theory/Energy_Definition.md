@@ -1,4 +1,4 @@
-# Energy Definition: The Hierarchical Landscape
+# Unified Energy Metric: The Split Projection Model
 
 > "The Will climbs the smooth hill; the Truth resides in the sharp valley."
 
@@ -12,60 +12,45 @@ In designing the Evolver's projection function $\Psi$, we encounter two contradi
     Without this, the Cayley Graph is just random noise, and no heuristic search is possible.
 
 * **Requirement B: Avalanche Effect (For Verification)**
-    Logical Truth must be rigorous. A "slightly wrong" logic is still "wrong." Furthermore, for security (Proof of Will), the mapping should be non-invertible and sensitive to exact state configurations.
+    Logical Truth must be rigorous. A "slightly wrong" logic is still "wrong." Furthermore, for security (Proof of Will), the mapping should be non-invertible and strictly sensitive to exact state configurations.
     $$\Delta S \neq 0 \implies \Psi(S) \text{ changes significantly (Bit Flip)}$$
 
-**The Conflict:** A function cannot be both smooth (Lipschitz) and chaotic (Avalanche) at the same scale.
+**The Resolution:** We split the Materialization process into two distinct projections, separating the Search Objective from the Verification Objective.
 
 ---
 
-## 2. The Resolution: Two-Stage Materialization
+## 2. The Split Architecture
 
-To resolve this, we adopt a **Hierarchical Objective Architecture**. We split the Materialization process into two distinct layers, separating the Search Objective from the Verification Objective.
+### 2.1 $\Psi_{topo}$: The Heuristic Projection (Will Layer)
 
-### Stage 1: The Topological Proxy (Low-Frequency / Search Layer)
+* **Function:** $\Psi_{topo}(S) = \text{Bucket}(\text{ModularFeatures}(S))$
+* **Input:** Algebraic State $S$.
+* **Mechanism:** Extracts smooth geometric features ($\cos, \sin, \log y$) and maps them to coarse-grained buckets.
+* **Property:** Lipschitz Continuous (Locally). Small changes in $S$ usually result in the same bucket or adjacent buckets.
+* **Role:** Provides the "Gradient Sense". It defines the Basin of Attraction.
 
-* **Function:** $\Psi_{topo}(S) = \text{ModularFeatures}(S)$
-* **Input:** Algebraic State $S \in Cl(\Delta)$
-* **Output:** Continuous Feature Vector $v \in \mathbb{R}^3$ ($\cos, \sin, \log y$)
-* **Property:** **Lipschitz Continuous**.
-* **Role:** Acts as the Proxy Energy. It provides the coarse-grained "gradient" or "slope" for the optimizer.
-* **Mechanism:** When VAPO explores neighbors, it minimizes the distance in this smooth feature space.
-    $$E_{search} \propto || \Psi_{topo}(S) - \Psi_{topo}(S_{target}) ||^2$$
+### 2.2 $\Psi_{exact}$: The Exact Projection (Truth Layer)
 
-### Stage 2: The Logical Realization (High-Frequency / Truth Layer)
-
-* **Function:** $\Psi_{logic}(S) = \text{Hash}(\text{Bucket}(\Psi_{topo}(S)))$
-* **Input:** Continuous Feature Vector
-* **Output:** Discrete Logic Symbol $d \in \mathbb{Z}_p$
-* **Property:** **Avalanche / Discrete**.
-* **Role:** Acts as the Barrier Function. It performs the rigorous check.
-* **Mechanism:** Once the optimizer gets "close enough" in the topological layer, the discrete hashing takes over to determine if the state is exactly a valid logical proof.
-    $$E_{truth} \in \{ 0, \text{Penalty} \}$$
+* **Function:** $\Psi_{exact}(S) = \text{Hash}(\text{Canonical}(S))$
+* **Input:** Algebraic State $S$.
+* **Mechanism:** Strictly reduces $S$ to its canonical form $(a, b, c)$ and performs a cryptographic hash on the structural integers.
+* **Property:** Avalanche / Discrete. Even the slightest deviation in the algebraic structure (e.g., $a \pm 1$) results in a completely different, pseudo-random output.
+* **Role:** Defines the Barrier Function. It validates the specific Proof of Work.
 
 ---
 
 ## 3. The Unified Energy Function
 
-The total system energy $J(S)$ is a weighted sum of these two layers, effectively implementing a "Guided Search" on a "Rugged Landscape."
+The total system energy $J(S)$ is a weighted sum of these two layers:
 
-$$J(S) = \underbrace{\mathcal{V}_{STP}(\Psi_{logic}(S))}_{\text{Discrete Barrier (Avalanche)}} + \lambda \cdot \underbrace{||\Psi_{topo}(S) - \tau_{ideal}||^2}_{\text{Continuous Residual (Lipschitz)}}$$
+$$J(S) = \underbrace{\mathcal{V}_{STP}(\Psi_{exact}(S))}_{\text{Discrete Barrier (Avalanche)}} + \lambda \cdot \underbrace{||\Psi_{topo}(S) - \Psi_{target}||^2}_{\text{Continuous Residual (Lipschitz)}}$$
 
 ### Dynamics of Optimization
 
-1.  **Far Field (Exploration):**
-    When the logic is invalid ($E_{truth} = \text{Penalty}$), the Discrete Barrier is constant. The optimizer follows the Continuous Residual ($\lambda \cdot E_{search}$), using the Lipschitz property of the Modular Features to move towards the general "basin of attraction."
+1.  **Exploration Phase (Guided by $\Psi_{topo}$):**
+    When the system is logically invalid (High Barrier), the optimizer follows the gradient of the Continuous Residual. It brings the state into the correct "Geometric Neighborhood."
 
-2.  **Near Field (Fine-Tuning):**
-    When the optimizer enters the correct "bucket" in the feature space, the Discrete Barrier drops to 0. The Avalanche effect ensures that only the precise algebraic state yields the correct logical hash, locking the solution into a stable Minimum.
+2.  **Lock-in Phase (Enforced by $\Psi_{exact}$):**
+    Once the state is structurally close, the optimizer must find the exact algebraic configuration that satisfies the STP constraints. Any "almost correct" state (in the same bucket but wrong structure) will be rejected by the Avalanche Barrier.
 
----
-
-## 4. Conclusion
-
-We do not force one function to do two jobs.
-
-* The **Will** sees the smooth slopes of Modular Geometry.
-* The **Truth** sees the sharp cliffs of Discrete Logic.
-
-This separation ensures VAPO can "feel" the direction of the answer without compromising the rigor of the final result.
+This ensures that Intelligence (Low Energy) is strictly bound to Work (Finding the Exact State), preventing collision attacks based on geometric proximity.
