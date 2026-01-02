@@ -1,30 +1,29 @@
-use num_bigint::{BigInt, Sign, BigUint};
+use num_bigint::{BigInt, Sign};
 use num_traits::{Signed, Zero, One, Num, ToPrimitive};
 use num_integer::Integer;
 use serde::{Serialize, Deserialize};
 use std::mem;
 use sha2::{Sha256, Digest};
 
-/// ClassGroupElement (类群元素)
+/// IdealClass (理想类)
 /// Represents a binary quadratic form (a, b, c) corresponding to ax^2 + bxy + cy^2.
+/// 这是 Evolver 的核心代数状态，重命名自 ClassGroupElement 以符合 SPEC。
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ClassGroupElement {
+pub struct IdealClass {
     pub a: BigInt,
     pub b: BigInt,
     pub c: BigInt,
-    // 为了方便后续计算，我们可以在元素内部携带其所属的宇宙标识（判别式）
-    // 但为了节省序列化空间，标准形式通常只存 (a,b,c)。
-    // 这里我们保持原样，但依赖外部确保 Delta 的一致性。
+    // Discriminant is implied by b^2 - 4ac and is universe-dependent.
 }
 
 // 基础的相等性比较
-impl PartialEq for ClassGroupElement {
+impl PartialEq for IdealClass {
     fn eq(&self, other: &Self) -> bool {
         self.a == other.a && self.b == other.b && self.c == other.c
     }
 }
 
-impl Eq for ClassGroupElement {}
+impl Eq for IdealClass {}
 
 /// 宇宙上下文：包含由 Context 决定的物理常数
 pub struct Universe {
@@ -32,10 +31,29 @@ pub struct Universe {
     pub context_hash: String,
 }
 
-impl ClassGroupElement {
+impl IdealClass {
     /// 构造一个新的类群元素
     pub fn new(a: BigInt, b: BigInt, c: BigInt) -> Self {
         Self { a, b, c }
+    }
+
+    /// 从上下文哈希和投影基数 p 初始化种子
+    /// 
+    /// # Arguments
+    /// * `context` - 文本上下文，用于生成宇宙判别式 Δ
+    /// * `_p` - 投影层的基数 (Projection Base)，在代数层暂时不用，但在接口上保留以兼容上层调用
+    pub fn from_hash(context: &str, _p: u64) -> Self {
+        // 调用底层的宇宙生成逻辑
+        let (seed, _) = Self::spawn_universe(context);
+        seed
+    }
+
+    /// 自旋演化 (Squaring)
+    /// 
+    /// 这是 VDF 动力学的基础：S_{t+1} = S_t * S_t
+    /// 在类群中，自平方是一个单向性很强的操作（在不知道群阶的情况下难以求根）。
+    pub fn square(&self) -> Self {
+        self.compose(self)
     }
 
     /// 获取判别式 Δ = b^2 - 4ac
@@ -118,6 +136,7 @@ impl ClassGroupElement {
     }
 
     /// 高斯合成算法 (Gaussian Composition)
+    /// 实现了群运算: Self * Other
     pub fn compose(&self, other: &Self) -> Self {
         let delta = self.discriminant();
         // 在理想模型中，我们应当严格检查
@@ -160,13 +179,13 @@ impl ClassGroupElement {
         let four_a3 = &two * &two_a3;
         let c3 = num / four_a3;
 
-        let mut result = ClassGroupElement::new(a3, b3, c3);
+        let mut result = IdealClass::new(a3, b3, c3);
         result.reduce(); 
         result
     }
 
     pub fn inverse(&self) -> Self {
-        let mut res = ClassGroupElement::new(self.a.clone(), -&self.b, self.c.clone());
+        let mut res = IdealClass::new(self.a.clone(), -&self.b, self.c.clone());
         res.reduce();
         res
     }
@@ -190,7 +209,7 @@ impl ClassGroupElement {
             panic!("Invalid discriminant structure");
         };
 
-        let mut res = ClassGroupElement::new(a, b, c);
+        let mut res = IdealClass::new(a, b, c);
         res.reduce();
         res
     }
@@ -217,7 +236,7 @@ impl ClassGroupElement {
                 continue;
             }
 
-            if self.a == self.c || self.a == self.b.abs() {
+            if self.a == self.b.abs() || self.a == self.c {
                 if self.b < BigInt::zero() {
                     self.b = -&self.b;
                 }
