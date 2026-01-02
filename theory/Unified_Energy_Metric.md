@@ -4,33 +4,36 @@
 
 ## 1. The Definitions
 
-To strictly align the implementation (`src/dsl/stp_bridge.rs`) with the theoretical specification, we define the Total System Energy $J(S)$ as a sum of a Discrete Barrier and a Continuous Residual.
+To strictly align the implementation (`src/dsl/stp_bridge.rs`) with the theoretical specification, we define the Total System Energy $J(S)$ as a sum of a Discrete Barrier, a Semantic Axiom Penalty, and a Continuous Residual.
 
-$$J(S) = E_{barrier}(\Psi(S)) + E_{residual}(\Psi(S))$$
+$$J(S) = E_{barrier}(\Psi(S)) + E_{axiom}(\Psi(S)) + E_{residual}(\Psi(S))$$
 
 ### 1.1 The Discrete Barrier ($E_{barrier}$)
 
-The Barrier represents the Logical Validity State. It is a discrete step function derived from the rigor of the STP (Semi-Tensor Product) engine and the Parser.
-
-Values are strictly defined as:
+The Barrier represents the Syntactic and Structural Validity.
 
 | Value ($B$) | State Meaning | Condition |
 | :--- | :--- | :--- |
-| **0.0** | TRUTH (Valid) | Parser OK AND Logic OK ($E_{STP} = 0$). |
-| **10.0** | SYNTAX ERROR | Parser Failed (e.g., structural mismatch, invalid opcode). |
-| **100.0** | LOGICAL FALSE | Parser OK, but Logic Contradiction ($E_{STP} > 0$). |
+| 0.0 | STRUCTURALLY OK | Parser OK AND Dimensions Match. |
+| 10.0 | SYNTAX ERROR | Parser Failed (e.g., structural mismatch, invalid opcode). |
+| 100.0 | LOGICAL FALSE | STP Logic Contradiction ($E_{STP} > 0$). |
 
-**Note:** These constants (10.0, 100.0) act as "energy plateaus" that the optimizer seeks to fall off of.
+### 1.2 The Semantic Axiom Penalty ($E_{axiom}$) [NEW]
 
-### 1.2 The Continuous Residual ($E_{residual}$)
+To prevent "Consistent but Absurd" states (e.g., proving $5$ is Even), we inject static Axiom Matrices.
 
-The Residual represents the Geometric Proximity. It serves as a tie-breaker for invalid states, allowing the VAPO algorithm to perform hill-climbing even when the logic is broken.
+$$E_{axiom} = \mathbf{X}^T \mathbf{M}_{axiom} \mathbf{X}$$
+
+Where $\mathbf{M}_{axiom}$ encodes penalties for violating fundamental truths (e.g., Mutual Exclusion of Even/Odd).
+
+* **Logic:** If the system attempts to activate conflicting semantic concepts simultaneously, this term explodes (e.g., $+10,000$).
+* **Role:** Acts as the "Common Sense" filter. It ensures that semantic meaning is preserved even if type signatures match.
+
+### 1.3 The Continuous Residual ($E_{residual}$)
+
+The Residual represents the Geometric Proximity. It serves as a tie-breaker for invalid states.
 
 $$E_{residual}(S) = \beta \cdot || \mathbf{F}(S) - \mathbf{F}_{target} ||^2$$
-
-Where:
-* $\mathbf{F}(S)$ is the Continuous Modular Embedding of state $S$.
-* $\beta$ is a small scaling factor (e.g., $0.01$) ensuring $E_{residual}$ never exceeds the gap between Barrier levels.
 
 ---
 
@@ -38,44 +41,41 @@ Where:
 
 The optimizer seeks to minimize $J(S)$. The landscape implies a priority queue of constraints:
 
-1.  **Priority 1: Fix Logic (100.0 -> 0.0)**
-    If the system is in a "Logical False" state, the optimizer is driven by the huge energy drop of 100.0 to find any state that is logically valid.
-2.  **Priority 2: Fix Syntax (10.0 -> 0.0)**
-    If the system is outputting garbage (Syntax Error), the drop of 10.0 encourages finding well-formed structures.
-3.  **Priority 3: Optimize Intuition (Residual)**
-    If multiple states have the same Barrier level (e.g., both are False), the optimizer chooses the one with the smaller $E_{residual}$. This embodies the principle: "Even if you are wrong, be roughly in the right neighborhood."
+1.  **Priority 1: Enforce Axioms ($E_{axiom}$)**
+    The system must not violate fundamental math. A "structurally valid" proof that $5$ is Even is worse than a syntax error. It is a lie.
+2.  **Priority 2: Fix Logic ($E_{barrier}$)**
+    Resolve STP structural contradictions.
+3.  **Priority 3: Fix Syntax ($E_{barrier}$)**
+    Fix parser errors.
+4.  **Priority 4: Optimize Intuition ($E_{residual}$)**
+    Hill-climb towards the geometric target.
 
 ---
 
 ## 3. Implementation Alignment
 
-The implementation in `src/dsl/stp_bridge.rs` MUST reflect this structure:
+The implementation in `src/dsl/stp_bridge.rs` reflect this structure:
 
 ```rust
 pub fn calculate_energy(state: &IdealClass, target: &FeatureVector) -> f64 {
-    let projected_path = project(state);
-    
-    // 1. Check Syntax
-    let ast = match parse(&projected_path) {
+    // 1. Syntax Check
+    let ast = match parse(project(state)) {
         Ok(ast) => ast,
-        Err(_) => return 10.0 + geometric_distance(state, target),
+        Err(_) => return 10.0 + dist,
     };
 
-    // 2. Check Logic (STP)
-    let logic_violation = stp_check(&ast); // Returns true if contradiction found
-    
-    if logic_violation {
-        return 100.0 + geometric_distance(state, target);
+    // 2. Axiom Check (The Truth Police)
+    let axiom_penalty = calculate_axiom_penalty(&ast);
+    if axiom_penalty > 0.0 {
+        return 100.0 + axiom_penalty; // Huge penalty for lying
     }
 
-    // 3. Truth
-    return 0.0; // Strictly 0.0 means Success.
+    // 3. Structure Check
+    let struct_violation = stp_check(&ast);
+    if struct_violation {
+        return 100.0;
+    }
+
+    return 0.0; // Success
 }
 ```
-
----
-
-## 4. Summary
-
-* **No Gradients:** The optimization process does not use derivatives. It uses the magnitude of $J(S)$ to greedily select neighbors.
-* **Correct-by-Construction:** A result is only accepted if $J(S) < 1.0$ (effectively 0.0), which mathematically guarantees that $E_{barrier} = 0$.
