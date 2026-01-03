@@ -1,92 +1,86 @@
 # Hyper-Tensor Protocol (HTP) Specification
 
-**Version:** 2.3.0  
-**Layer:** Core Protocol  
+**Version:** 3.0.0 (Quaternion Era)  
+**Layer:** Core Protocol
 
-> "The Soul evolves, the Will optimizes, the Body manifests."
+> "The Soul evolves via Hecke operators, the Will governs the spectrum, the Body lifts the state."
 
 ---
 
 ## 1. Abstract
 
-This specification defines the **Hyper-Tensor Protocol (HTP)**, an algebraic protocol designed for the generation, verification, and materialization of logical paths.
+This specification defines the Hyper-Tensor Protocol (HTP) v3.0.
 
-The core paradigm shift of HTP lies in this: we no longer seek answers within a continuous, approximate probabilistic space; instead, we perform searches within a discrete, rigorous **Algebraic Graph**.
-
-### Trust Model:
-* **Prover (Generator):** Must provide a valid walking path (Trace) on a Cayley graph, proving that a zero-energy state was found through computation.
-* **Verifier:** Only needs to execute a low-cost Algebraic Replay to verify logical correctness, without needing to run expensive inference models.
+The protocol has shifted from commutative ideal class groups to **Definite Quaternion Algebras**. This change introduces non-commutativity (causality) and optimal graph expansion properties (Ramanujan Graphs), enabling faster convergence and stronger cryptographic binding.
 
 ---
 
 ## 2. The Soul: Algebraic State Space Specification
 
 ### 2.1 State Definition
-The core state space $\mathcal{S}$ is defined as the ideal class group $Cl(\Delta)$ of an imaginary quadratic field $\mathbb{Q}(\sqrt{\Delta})$.
 
-* **Discriminant:** $\Delta < 0, \Delta \equiv 0, 1 \pmod 4$. A value of $|\Delta| \approx 2^{2048}$ is recommended to ensure cryptographic strength.
-* **Element Representation:** A state $S$ is uniquely represented by a reduced binary quadratic form $(a, b, c)$, satisfying $b^2 - 4ac = \Delta$.
+The core state space $\mathcal{S}$ is defined within the Definite Quaternion Algebra $B_{p, \infty}$ over $\mathbb{Q}$.
 
-### 2.2 Evolution Operator
-State evolution strictly follows **Gauss Composition**.
+* **Algebra:** $B_{p, \infty} = \mathbb{Q} \oplus \mathbb{Q}i \oplus \mathbb{Q}j \oplus \mathbb{Q}k$ with $i^2 = a, j^2 = b, ij = -ji = k$.
+* **Prime Parameter:** $p \equiv 1 \pmod 4$ is preferred (e.g., $p=37$).
+* **Element Representation:** A state $S$ is a Quaternion $q = [a, b, c, d]$ representing a node in the lattice.
 
-$$S_{next} = S_{curr} \circ \epsilon$$
+### 2.2 Evolution Operator (Non-Commutative)
 
-Where $\epsilon \in \mathcal{P}$, and $\mathcal{P}$ is a predefined set of generators (perturbation set). This ensures the system never enters an "illegal state."
+State evolution follows the action of **Hecke Operators**. Unlike the previous commutative model, the order of application matters.
 
----
+$$S_{next} = S_{curr} \times T_\ell$$
 
-## 3. The Will: Optimization and Energy Specification
-
-### 3.1 Unified Energy Metric
-The optimization goal is to minimize the Hamiltonian $J(S)$, which measures the degree of "cognitive dissonance."
-
-$$J(S) = \mathcal{L}(E_{obj}, C_{axioms}, \xi)$$
-
-* $E_{obj}$ (**Semantic Objective**): The distance between $\Psi_{topo}(S)$ and the target features.
-* $C_{axioms}$ (**Axiomatic Residual**): The degree of violation of the STP matrix equation $\|L(S) - R(S)\|^2$.
-* $\xi$ (**Logical Relaxation**): Permissible variables for axiomatic compromise (used to handle paradoxes).
-
-### 3.2 VAPO Protocol
-The "Will" must implement a **Valuation-Adaptive** strategy:
-
-1.  **Sensing:** Calculate the energy gradient $\nabla J$ of the current neighborhood.
-2.  **Perturbing:** Dynamically select the norm size of $\epsilon$ based on the smoothness of $\nabla J$.
-    * **High Energy Zone** $\to$ Large norm $\epsilon$ (Tunneling).
-    * **Low Energy Zone** $\to$ Small norm $\epsilon$ (Annealing).
+Where $T_\ell$ corresponds to right-multiplication by a generator quaternion of norm $\ell$. This ensures the trajectory is a valid path on the Pizer Graph.
 
 ---
 
-## 4. The Body: Projection and Materialization Specification
+## 3. The Will: Optimization and Governance
 
-### 4.1 Projection Interface
-The "Body" must implement a function $\Pi$ that maps the algebraic state $S$ to logical components.
+### 3.1 Optimization Target
 
-$$\Pi: Cl(\Delta) \to \text{CodeBlock}^*$$
+Minimize the unified energy $J(S)$.
 
-This mapping must satisfy **One-wayness** and the **Avalanche Effect** to prevent the forging of algebraic states via reverse engineering.
+### 3.2 Spectral Governance (Meta-Optimization)
+
+The Will must implement a **Spectral Governor** to monitor the topology of the visited subgraph.
+
+* **Metric:** The Spectral Gap $\gamma = 1 - |\lambda_2|$, where $\lambda_2$ is the second largest eigenvalue of the local adjacency matrix.
+* **Invariant:** The search graph must remain an Expander.
+* **Action:** If $\gamma < \gamma_{threshold}$, the protocol triggers an **Algebra Migration** event, changing the global parameter $p \to p'$.
+
+---
+
+## 4. The Body: Projection and Lifting
+
+### 4.1 State Lifting (Trans-Universal Interface)
+
+To support Algebra Migration, the Body must implement a Lifter:
+
+$$\text{Lift}: B_{p, \infty} \to \mathcal{M} \text{ (Modular Forms Space)}$$
+$$\text{Requantize}: \mathcal{M} \times p' \to B_{p', \infty}$$
+
+This allows the "logical intent" to survive the destruction of the underlying algebraic universe.
 
 ### 4.2 Proof Bundle
-A valid HTP response must contain the following three parts:
+
+A valid HTP response now includes the "Universe ID" ($p$):
 
 ```json
 {
+  "universe_p": 37,
   "context_hash": "SHA256(Input)",
-  "algebraic_seed": "[a, b, c]",
-  "evolution_trace": ["p1_idx", "p2_idx", ...], 
+  "quaternion_path": [[1,0,0,0], [6,1,0,0], ...],
   "final_energy": 0.0
 }
 ```
-
-The verifier accepts the result by replaying the seed + trace and checking if the energy is 0.
 
 ---
 
 ## 5. Security Statement
 
-This protocol provides **Computational Asymmetry**:
+This protocol provides **Causal Security**:
 
-* **Generation (Hard):** This is a Preimage Attack problem within a vast discrete space, which is NP-Hard.
-* **Verification (Easy):** This is a deterministic Polynomial-Time calculation (P-Time).
-
-This ensures that the generated logic is not just "seemingly correct," but is a **Computational Truth** proven by processing power.
+* **Non-Commutativity:** $A \times B \neq B \times A$. Reordering the trace invalidates the result.
+* **Path Dependence:** The final state encodes the exact history of its derivation.
+* **Hardness:** Finding a path between two nodes in a Pizer Graph is related to the hardness of computing isogenies between supersingular elliptic curves (basis of SIDH/SQISign).
