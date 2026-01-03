@@ -1,42 +1,40 @@
 # Evolver: The Algebraic Logic Generator
 
-"Logic is not corrected; it is evolved through the non-commutative arrow of time."
+**Version:** 1.0.0 (The Quaternion Era)
+
+> "Logic is not corrected; it is evolved through the non-commutative arrow of time."
 
 Evolver is a native algebraic logic generation engine based on Definite Quaternion Algebras ($B_{p, \infty}$) and Pizer Graphs (Ramanujan Graphs).
 
-Unlike traditional LLMs that predict probabilities, Evolver "grows" truth paths by traversing rigorous, optimal-expander graphs. It employs Valuation-Adaptive Perturbation Optimization (VAPO) alongside a meta-cognitive Spectral Governor to ensure the logical search space remains topologically healthy.
+Unlike traditional LLMs that predict probabilities, Evolver "grows" truth paths by traversing rigorous, optimal-expander graphs. It employs **Valuation-Adaptive Perturbation Optimization (VAPO)** alongside a meta-cognitive **Spectral Governor** to ensure the logical search space remains topologically healthy.
 
-We do not promise "Correct-by-Construction"; we offer a higher-level guarantee — Verified-by-Search.
+We do not promise "Correct-by-Construction"; we offer a higher-level guarantee — **Verified-by-Search**.
 
-## Core Philosophy: The Trinity
+---
+
+## Core Philosophy: The Trinity v1.0
 
 Evolver's architecture mimics the forms of life, decoupling the system into three orthogonal dimensions:
 
-### 1. Soul: Algebraic Laws (src/soul)
+### 1. Soul: Algebraic Laws (`src/soul`)
 
-**Mathematical Entity:** Definite Quaternion Algebra $B_{p, \infty}$ (specifically $p=37$ by default).
+* **Mathematical Entity:** Definite Quaternion Algebra $B_{p, \infty}$ (Default $p=37$).
+* **Role:** Defines the immutable physical laws. The state is a path of Hecke Operators acting on the quaternion origin.
+* **Characteristics:** Non-Commutative. The order of operations matters (Causality). The state space forms a Pizer Graph, a Ramanujan graph with optimal mixing properties.
 
-**Role:** Defines the immutable physical laws. The state is a path of Hecke Operators acting on the quaternion origin.
+### 2. Will: Evolutionary Dynamics (`src/will`)
 
-**Characteristics:** Non-Commutative. The order of operations matters (Causality). The state space forms a Pizer Graph, a Ramanujan graph with optimal mixing properties.
+* **Core Algorithm:** VAPO (Valuation-Adaptive Perturbation Optimization).
+* **Meta-Cognition:** Spectral Governor.
+    * Monitors the Spectral Gap of the local search graph.
+    * If the gap closes (topology collapse), it triggers **Algebra Migration**, shifting the universe's prime constant $p$ to escape dead ends.
+* **Objective:** To find states where the unified energy $J(S) \to 0$.
 
-### 2. Will: Evolutionary Dynamics (src/will)
+### 3. Body: Topological Manifestation (`src/body`)
 
-**Core Algorithm:** VAPO (Valuation-Adaptive Perturbation Optimization).
-
-**Meta-Cognition:** Spectral Governor.
-* Monitors the Spectral Gap of the local search graph.
-* If the gap closes (topology collapse), it triggers **Algebra Migration**, shifting the universe's prime constant $p$ to escape dead ends.
-
-**Objective:** To find states where the unified energy $J(S) \to 0$.
-
-### 3. Body: Topological Manifestation (src/body)
-
-**Mechanism:** State Lifting & Dual Projection.
-
-**State Lifter:** When the "Soul" migrates universes ($p \to p'$), the "Body" preserves knowledge by projecting state into coordinate-free Modular Form Feature Space and re-quantizing it in the new algebra.
-
-**Projections:** Maps the abstract Quaternion state into concrete logic circuits or code.
+* **Mechanism:** State Lifting & Dual Projection.
+* **State Lifter:** When the "Soul" migrates universes ($p \to p'$), the "Body" preserves knowledge by projecting state into coordinate-free Modular Form Feature Space and re-quantizing it in the new algebra.
+* **Projections:** Maps the abstract Quaternion state into concrete logic circuits or code.
 
 ---
 
@@ -98,17 +96,6 @@ fn main() {
     }
 }
 ```
-
----
-
-## Theoretical Foundation
-
-Evolver’s core engine is built upon the following mathematical pillars:
-
-* **Semi-Tensor Product (STP):** Algebraization of logic.
-* **Definite Quaternion Algebras:** Provides a non-commutative, discrete lattice for state representation.
-* **Spectral Graph Theory:** Uses the properties of Ramanujan Graphs (Pizer Graphs) to guarantee optimal search efficiency.
-* **Modular Forms:** Used as the invariant "Spirit" to transfer states between different algebraic structures.
 
 ---
 
