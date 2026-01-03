@@ -1,42 +1,49 @@
 # Evolver: The Algebraic Logic Generator
 
-> "Logic is not corrected; it is evolved."
+"Logic is not corrected; it is evolved through the non-commutative arrow of time."
 
-Evolver is a native algebraic logic generation engine based on the **Semi-Tensor Product (STP)** and **Ideal Class Groups of Imaginary Quadratic Fields**.
+Evolver is a native algebraic logic generation engine based on Definite Quaternion Algebras ($B_{p, \infty}$) and Pizer Graphs (Ramanujan Graphs).
 
-Unlike traditional "black-box" Large Language Models (LLMs), Evolver does not predict probabilities. Instead, it directly "grows" truth paths that satisfy logical constraints through **Valuation-Adaptive Perturbation Optimization (VAPO)** searches within rigorous algebraic structures.
+Unlike traditional LLMs that predict probabilities, Evolver "grows" truth paths by traversing rigorous, optimal-expander graphs. It employs Valuation-Adaptive Perturbation Optimization (VAPO) alongside a meta-cognitive Spectral Governor to ensure the logical search space remains topologically healthy.
 
-We do not promise "Correct-by-Construction"; we offer a higher-level guarantee — **Verified-by-Search**.
-
----
+We do not promise "Correct-by-Construction"; we offer a higher-level guarantee — Verified-by-Search.
 
 ## Core Philosophy: The Trinity
 
-Evolver's architecture mimics the forms of life, decoupling the system into three orthogonal dimensions (corresponding to the code structure):
+Evolver's architecture mimics the forms of life, decoupling the system into three orthogonal dimensions:
 
-### 1. Soul: Algebraic Laws (`src/soul`)
-* **Mathematical Entity**: Ideal Class Group $Cl(\Delta)$ of an imaginary quadratic field.
-* **Role**: Defines the physical laws of the system. Regardless of how the state evolves, it remains a valid group element, ensuring **Algebraic Soundness**.
-* **Characteristics**: A discrete, vast Cayley graph with deterministic chaotic features.
+### 1. Soul: Algebraic Laws (src/soul)
 
-### 2. Will: Evolutionary Dynamics (`src/will`)
-* **Core Algorithm**: VAPO (Valuation-Adaptive Perturbation Optimization).
-* **Role**: Drives the system's movement across the group manifold, replacing traditional gradient descent.
-* **Structural Jumps**: Uses prime ideals with large norms for coarse-grained searching.
-* **Fine-tuning**: Uses prime ideals with small norms for local optimization.
-* **Objective**: To find states where the unified energy $J(S) \to 0$.
+**Mathematical Entity:** Definite Quaternion Algebra $B_{p, \infty}$ (specifically $p=37$ by default).
 
-### 3. Body: Topological Manifestation (`src/body`)
-* **Mechanism**: Dual Projection.
-    * $\Psi_{topo}$ (Lipschitz): Provides geometric intuition and a sense of "gradient" for the Will.
-    * $\Psi_{exact}$ (Hash): Collapses the algebraic state into a unique, unforgeable code/logic path.
-* **Result**: Even minute logical differences correspond to distinct geometric locations at the algebraic source.
+**Role:** Defines the immutable physical laws. The state is a path of Hecke Operators acting on the quaternion origin.
+
+**Characteristics:** Non-Commutative. The order of operations matters (Causality). The state space forms a Pizer Graph, a Ramanujan graph with optimal mixing properties.
+
+### 2. Will: Evolutionary Dynamics (src/will)
+
+**Core Algorithm:** VAPO (Valuation-Adaptive Perturbation Optimization).
+
+**Meta-Cognition:** Spectral Governor.
+* Monitors the Spectral Gap of the local search graph.
+* If the gap closes (topology collapse), it triggers **Algebra Migration**, shifting the universe's prime constant $p$ to escape dead ends.
+
+**Objective:** To find states where the unified energy $J(S) \to 0$.
+
+### 3. Body: Topological Manifestation (src/body)
+
+**Mechanism:** State Lifting & Dual Projection.
+
+**State Lifter:** When the "Soul" migrates universes ($p \to p'$), the "Body" preserves knowledge by projecting state into coordinate-free Modular Form Feature Space and re-quantizing it in the new algebra.
+
+**Projections:** Maps the abstract Quaternion state into concrete logic circuits or code.
 
 ---
 
 ## Quick Start
 
 ### Prerequisites
+
 Evolver is a high-performance Rust project.
 
 ```bash
@@ -44,40 +51,49 @@ rustc --version  # Requires 1.70+
 ```
 
 ### Build
+
 ```bash
 cargo build --release
 ```
 
-### Example: Evolving a Logic XOR Gate
+### Example: Evolving with Spectral Governance
+
 ```rust
 use evolver::prelude::*;
 
 fn main() {
-    // 1. Define the Body: A boolean network with 2 inputs and 1 output
+    // 1. Define the Body: A boolean network topology
     let topology = Topology::new(2, 1);
 
-    // 2. Define the Soul: Compile logical constraints (STP)
-    // Constraint: Output is 1 when inputs differ; otherwise 0
+    // 2. Define the Soul: Initialize Quaternion Algebra at p=37
+    // The 'Soul' now includes the Governor to monitor graph health
+    let mut soul = Soul::new(37); 
     let constraints = StpBridge::compile("y = x1 XOR x2");
 
-    // 3. Inject the Will: Configure the VAPO optimizer
-    let optimizer = Optimizer::new()
+    // 3. Inject the Will: Configure VAPO
+    let mut optimizer = Optimizer::new()
         .strategy(Strategy::ValuationAdaptive)
-        .max_epochs(1000)
-        .target(Energy::Zero);
+        .max_epochs(1000);
 
-    println!("Evolving logic from algebraic void...");
+    println!("Evolving logic on Pizer Graph (p=37)...");
 
     // 4. Begin Evolution
-    match optimizer.evolve(topology, constraints) {
-        EvolutionResult::VerifiedSuccess(trace) => {
-            println!("✨ Truth path discovered!");
-            println!("Algebraic Seed: {:?}", trace.seed);
-            println!("Proof Hash: {}", trace.proof_hash);
-        },
-        EvolutionResult::ValidFailure(trace, energy) => {
-            println!("⚠️ Trapped in local optimum (E={:.4})", energy);
-            println!("Certificate of Cognitive Dissonance: {:?}", trace.compromise);
+    loop {
+        match optimizer.step(&mut soul, &topology, &constraints) {
+            StepResult::Converged(trace) => {
+                println!("✨ Truth path discovered!");
+                println!("Quaternion Path: {:?}", trace.path);
+                break;
+            },
+            StepResult::Stagnated => {
+                // The Governor checks the Spectral Gap
+                if soul.governor.is_collapsing() {
+                    println!("⚠️ Topology Collapse detected! Migrating Algebra...");
+                    soul.migrate(); // Shifts p -> p_new (e.g., 37 -> 41)
+                    println!("🌌 Universe shifted. Resuming search in new manifold.");
+                }
+            }
+            _ => continue,
         }
     }
 }
@@ -89,11 +105,10 @@ fn main() {
 
 Evolver’s core engine is built upon the following mathematical pillars:
 
-* **Semi-Tensor Product (STP)**: Transforms logical operations into matrix multiplications, enabling the algebraization of logic.
-* **Algebraic Number Theory**: Leverages the hardness of the discrete logarithm problem in class groups as the state space.
-* **Topological Dynamics**: Utilizes the geometric properties of manifolds to guide discrete searches.
-
-For detailed derivations, please refer to the whitepaper in the `theory/` directory.
+* **Semi-Tensor Product (STP):** Algebraization of logic.
+* **Definite Quaternion Algebras:** Provides a non-commutative, discrete lattice for state representation.
+* **Spectral Graph Theory:** Uses the properties of Ramanujan Graphs (Pizer Graphs) to guarantee optimal search efficiency.
+* **Modular Forms:** Used as the invariant "Spirit" to transfer states between different algebraic structures.
 
 ---
 
@@ -102,5 +117,3 @@ For detailed derivations, please refer to the whitepaper in the `theory/` direct
 **M-Patek PROPRIETARY LICENSE**
 
 Copyright © 2025 M-Patek. All Rights Reserved.
-
-This software contains trade secrets protected by law. Unauthorized copying, distribution, or commercial use is strictly prohibited.
