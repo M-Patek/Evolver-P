@@ -1,6 +1,6 @@
 # Hyper-Tensor Protocol (HTP) Specification
 
-**Version:** 3.0.0 (Quaternion Era)  
+**Version:** 1.0.0  
 **Layer:** Core Protocol
 
 > "The Soul evolves via Hecke operators, the Will governs the spectrum, the Body lifts the state."
@@ -9,9 +9,9 @@
 
 ## 1. Abstract
 
-This specification defines the Hyper-Tensor Protocol (HTP) v3.0.
+This specification defines the Hyper-Tensor Protocol (HTP) v1.0.0.
 
-The protocol has shifted from commutative ideal class groups to **Definite Quaternion Algebras**. This change introduces non-commutativity (causality) and optimal graph expansion properties (Ramanujan Graphs), enabling faster convergence and stronger cryptographic binding.
+The protocol relies on **Definite Quaternion Algebras** to guarantee non-commutativity (causality) and optimal graph expansion properties (Ramanujan Graphs), enabling faster convergence and stronger cryptographic binding than previous commutative models.
 
 ---
 
@@ -27,7 +27,7 @@ The core state space $\mathcal{S}$ is defined within the Definite Quaternion Alg
 
 ### 2.2 Evolution Operator (Non-Commutative)
 
-State evolution follows the action of **Hecke Operators**. Unlike the previous commutative model, the order of application matters.
+State evolution follows the action of Hecke Operators. The order of application matters.
 
 $$S_{next} = S_{curr} \times T_\ell$$
 
@@ -58,13 +58,14 @@ The Will must implement a **Spectral Governor** to monitor the topology of the v
 To support Algebra Migration, the Body must implement a Lifter:
 
 $$\text{Lift}: B_{p, \infty} \to \mathcal{M} \text{ (Modular Forms Space)}$$
+
 $$\text{Requantize}: \mathcal{M} \times p' \to B_{p', \infty}$$
 
 This allows the "logical intent" to survive the destruction of the underlying algebraic universe.
 
 ### 4.2 Proof Bundle
 
-A valid HTP response now includes the "Universe ID" ($p$):
+A valid HTP response must include the "Universe ID" ($p$):
 
 ```json
 {
@@ -83,4 +84,4 @@ This protocol provides **Causal Security**:
 
 * **Non-Commutativity:** $A \times B \neq B \times A$. Reordering the trace invalidates the result.
 * **Path Dependence:** The final state encodes the exact history of its derivation.
-* **Hardness:** Finding a path between two nodes in a Pizer Graph is related to the hardness of computing isogenies between supersingular elliptic curves (basis of SIDH/SQISign).
+* **Hardness:** Finding a specific path in a Pizer Graph is related to the hardness of computing isogenies between supersingular elliptic curves (SIDH/SQISign foundation).
